@@ -120,9 +120,13 @@ Compute units of each: [`docs/benchmarks.md`](docs/benchmarks.md).
    expiry moves the series to `Expired`; minting and closing check the clock themselves.
 5. `settle` fixes the settlement price (or voids the series if no price exists by the hard
    deadline). It can be called by anyone; a second call fails.
-6. Holders `redeem`, writers `claim_writer`, in any order. When all have, the vault holds
-   exactly zero. After a void, long tokens pay nothing and writers recover all their
-   collateral.
+6. Holders `redeem`, writers `claim_writer`, in any order and with no deadline: payouts stay
+   claimable forever, and nothing ever moves USDC to anyone but its owner (PLAN 4.6). When
+   all have, the vault holds exactly zero. After a void, long tokens pay nothing and writers
+   recover all their collateral.
+7. Once nothing is owed, anyone will be able to close the series, its vault and the claimed
+   writer positions and return the rent to whoever paid it (next item after milestone 4; the
+   SPL Token long mint cannot be closed).
 
 ## Settlement and its trust assumption
 
