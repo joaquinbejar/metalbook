@@ -527,6 +527,11 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    code table and the make targets. Open question 7 was assessed in 4.6 and decided.
 7. **Devnet.** *Done when* a full series lifecycle runs on devnet against live Pyth XAU.
 
+   Runbook (not executed): [`docs/devnet.md`](devnet.md), with what is needed from Joaquin
+   (upgrade-authority keypair, devnet SOL, Hermes key, the USDC mint and calendar choices) and
+   the remaining gaps (admin and writer instruction builders, M7b-2 receiver posting, an RPC
+   `Chain` and a keeper binary).
+
    Delivered first (M7a, no devnet yet): `metalbook-keeper` (off-chain, std), the honest
    keeper of the 4.3 trust assumption. `Keeper::tick` reads a series, restores its oracle
    terms and candidates with `metalbook-core` (so keeper and program apply the same rules),
