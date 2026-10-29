@@ -2142,6 +2142,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "metalbook-sdk"
+version = "0.1.0"
+dependencies = [
+ "metalbook-core",
+ "solana-address 2.7.0",
+ "solana-instruction 3.5.1",
+]
+
+[[package]]
 name = "metalbook-tests"
 version = "0.1.0"
 dependencies = [
@@ -2150,6 +2159,7 @@ dependencies = [
  "metalbook-core",
  "metalbook-keeper",
  "metalbook-maker",
+ "metalbook-sdk",
  "optionstratlib",
  "pyth-lite",
  "quotebook-sdk",

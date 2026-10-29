@@ -93,8 +93,8 @@ devnet values:
 | `challenge_delay_s` (`D`) | 600 |
 | `fallback_lookback_s`, `hard_deadline_s` | 86_400, 604_800 (devnet may shorten the hard deadline to test the void path) |
 
-**GAP: there is no off-chain instruction builder yet.** The LiteSVM harness
-(`metalbook-tests/tests/common/mod.rs`) encodes every instruction, but that code is test-only.
+Build it with `metalbook_sdk::ix::init_config(program_id, admin, usdc_mint, &ConfigParams { .. })`
+and send it with any Solana client; `metalbook_sdk::decode::config` reads the result back.
 
 ### 4. Calendar and a series
 
@@ -104,7 +104,8 @@ devnet values:
   the series, its long mint and its USDC vault.
 - Mint test USDC to a writer and have the writer `mint` (tag 4) a few contracts.
 
-**GAP:** same instruction builder.
+`metalbook_sdk::ix::{set_calendar, create_series, mint}`; series addresses from
+`metalbook_sdk::pda::series(&program_id, &SeriesSpec { .. })`.
 
 ### 5. Run the keeper
 
@@ -148,10 +149,9 @@ Every transaction signature goes into the log below.
 
 ## What is missing
 
-1. **Admin and writer instruction builders** (an `examples/` binary or a small SDK crate) for
-   `init_config`, `set_calendar`, `create_series`, `mint`, `close`, `redeem`, `claim_writer` and the
-   two closes, reusing the shared layouts in `metalbook_core::accounts`. Not blocked; can be done
-   before devnet.
+1. ~~Instruction builders~~: done, `metalbook-sdk` (every instruction, PDA helpers, decoders).
+   Still missing: a small CLI around it for the admin steps (any Solana client can send the
+   SDK's instructions meanwhile).
 2. **M7b-2: Pyth receiver posting** (Wormhole encoded VAA, `verify_encoded_vaa_v1`, receiver
    `post_update` for a `Full` update). Blocked on the Hermes key, needed to record a
    guardian-signed update for tests.
