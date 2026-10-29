@@ -1,0 +1,23 @@
+[package]
+name = "metalbook-maker"
+description = "Off-chain pricing adapter for metalbook series: payoff-aware marks and maker quotes"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+metalbook-core = { workspace = true }
+quotebook-core = { workspace = true }
+rust_decimal = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+optionstratlib = { workspace = true }
+rust_decimal_macros = { workspace = true }
+proptest = { workspace = true }
+
+[lints]
+workspace = true

@@ -487,6 +487,24 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    double claims, over-redeeming and claims before settlement.
 5. **Pricing and quoting.** optfix marks, quotebook series, maker config. *Done when* a LiteSVM
    demo quotes and settles an option token through quotebook at an optfix price.
+
+   Split (coordinator, 2026-10-29): the LiteSVM demo waits for quotebook-sdk (quotebook
+   milestone 5) and the optfix pricer. Delivered now (M5a): `metalbook-maker` (off-chain,
+   `rust_decimal`), the payoff-aware adapter of 3.2 behind a `VanillaPricer` trait:
+   - `mark`: a put is one vanilla put; a capped call is `C(K) − C(cap)` for value and every
+     greek; the error bound is the **sum** of both legs' bounds (tested where the legs'
+     errors cancel); everything is scaled by `multiplier / 1000`; time to expiry is 365-day
+     calendar time; the value is clamped to `[0, max payout]`, and a pricer whose value leaves
+     that range by more than its own bound is rejected; no marks while the market is closed
+     or from `window_start` (4.4, 4.7);
+   - `quote_atoms`: bid `value − error − half_spread` rounded down to the tick, ask
+     `value + error + half_spread` rounded up, the ask never above the maximum payout;
+   - `quote_terms`: quotebook `QuoteTerms` for a long token from `quotebook-core` types only
+     (git, rev `269e3d9`), the price in quote lots, exact, or `OffLotGrid`.
+   Tests use OptionStratLib 0.23 (dev-only) as the independent Black-Scholes reference:
+   put and call-spread marks equal the reference legs, the spread stays within its payoff
+   bounds and is monotone in spot (property test), and deep in the money it approaches the
+   discounted maximum. optfix becomes one more `VanillaPricer`.
 6. **Benchmarks and docs.** *Done when* `docs/benchmarks.md` lists CU for every instruction and
    README explains the capped call and the market-hours rules.
 
@@ -535,6 +553,11 @@ whenever it is added or touched.
 | `pinocchio-associated-token-account` | 0.4.0 | `0.4`, see conflict below |
 | `optfix` | unpublished | git, pinned `rev` |
 | `pyth-lite` (varswap) | unpublished | git, `rev = 5cf95aa` |
+| `quotebook-core` | unpublished | git, `rev = 269e3d9` (bumped when quotebook-sdk lands) |
+| `rust_decimal` (maker) | 1.43.0 | `1.43` |
+| `thiserror` (maker) | 2.0.21 | `2.0` |
+| `optionstratlib` (maker, dev) | 0.23.0 | `0.23` |
+| `rust_decimal_macros` (maker, dev) | 1.40.0 | `1.40` |
 | `litesvm-token` (dev) | 0.18.1 | `0.18` |
 | `solana-account` (dev) | pinned by LiteSVM | `4.3` |
 | `solana-clock` (dev) | pinned by LiteSVM (`~3.2.0`) | `3.2` |
