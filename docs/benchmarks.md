@@ -16,9 +16,9 @@ runs must agree exactly.
 | `mint` | existing position | 4829 |
 | `close` | partial | 4793 |
 | `close` | to zero | 4793 |
-| `sample_settlement` | first print: slot 0 and fallback, expires the series | 2493 |
-| `sample_settlement` | window slot and fallback | 2498 |
-| `sample_settlement` | next-print link | 2382 |
+| `sample_settlement` | first print: slot 0 and fallback, expires the series | 2616 |
+| `sample_settlement` | window slot and fallback | 2621 |
+| `sample_settlement` | next-print link | 2505 |
 | `settle` | full window (30 slots) | 3176 |
 | `redeem` | 1 long token, in the money | 4062 |
 | `claim_writer` | residual of 1 contract | 3190 |

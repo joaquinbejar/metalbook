@@ -224,6 +224,45 @@ impl Print {
     }
 }
 
+/// The series' own acceptance rules for a Pyth print, after Pyth's verification (receiver owner,
+/// `Full`, feed id): a positive price, the series' pinned exponent, `conf / price` within
+/// `max_conf_bps` (`conf × 10_000 <= price × max_conf_bps`, exact), and [`Print::try_new`]
+/// (`prev_publish_time > 0`). The program and the keeper both call it, so the keeper never
+/// posts a print the program would reject.
+///
+/// # Errors
+///
+/// `InvalidPrint`, `ExponentMismatch` or `ConfidenceTooWide`, the first that applies.
+#[must_use = "the result carries a possible error"]
+pub fn accept_print(
+    price: i64,
+    conf: u64,
+    exponent: i32,
+    publish_time: i64,
+    prev_publish_time: i64,
+    expo: i8,
+    max_conf_bps: u16,
+) -> Result<Print, CoreError> {
+    let price = u64::try_from(price).map_err(|_| CoreError::InvalidPrint)?;
+    if price == 0 {
+        return Err(CoreError::InvalidPrint);
+    }
+    if exponent != i32::from(expo) {
+        return Err(CoreError::ExponentMismatch);
+    }
+    // u64 × 10_000 and u64 × u16 both fit in u128.
+    let lhs = u128::from(conf)
+        .checked_mul(10_000)
+        .ok_or(CoreError::Overflow)?;
+    let rhs = u128::from(price)
+        .checked_mul(u128::from(max_conf_bps))
+        .ok_or(CoreError::Overflow)?;
+    if lhs > rhs {
+        return Err(CoreError::ConfidenceTooWide);
+    }
+    Print::try_new(price, publish_time, prev_publish_time)
+}
+
 /// Which candidates a print was stored as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct PrintUse {
@@ -752,6 +791,32 @@ mod tests {
         assert!(!ok(1_800, 60, 10, 20, 5, 600, 86_400, 1_800, -3));
         assert!(!ok(1_800, 60, 10, 20, 5, 600, 86_400, 604_800, 1));
         assert!(!ok(1_800, 60, 10, 20, 5, 600, 86_400, 604_800, -13));
+    }
+
+    #[test]
+    fn test_accept_print_rules() {
+        let ok = accept_print(4_000_000, 400, -3, 10, 9, -3, 1);
+        assert_eq!(ok, Ok(print(4_000_000, 10, 9)));
+        assert_eq!(
+            accept_print(4_000_000, 401, -3, 10, 9, -3, 1),
+            Err(CoreError::ConfidenceTooWide)
+        );
+        assert_eq!(
+            accept_print(4_000_000, 400, -5, 10, 9, -3, 1),
+            Err(CoreError::ExponentMismatch)
+        );
+        assert_eq!(
+            accept_print(-1, 0, -3, 10, 9, -3, 1),
+            Err(CoreError::InvalidPrint)
+        );
+        assert_eq!(
+            accept_print(0, 0, -3, 10, 9, -3, 1),
+            Err(CoreError::InvalidPrint)
+        );
+        assert_eq!(
+            accept_print(1, 0, -3, 10, 0, -3, 1),
+            Err(CoreError::InvalidPrint)
+        );
     }
 
     #[test]

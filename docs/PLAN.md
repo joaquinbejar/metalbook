@@ -535,7 +535,13 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    the cascade allows. A failed post is benign only if the series, re-read right after,
    already holds the intended candidate (a lost race); any other failure ends the tick with
    an error and **without settling** (codex, #14: otherwise a receiver or RPC outage would let
-   the keeper settle a subset it knew how to complete). Prices come from a `PriceSource` trait (canonical print of a boundary,
+   the keeper settle a subset it knew how to complete). Before posting, every candidate is
+   checked with `metalbook_core::accept_print`, the same rule the program applies after
+   Pyth's verification (positive price, pinned exponent, `conf / price <= max_conf_bps`,
+   `prev_publish_time > 0`): an ineligible canonical slot is skipped and stays empty, an
+   ineligible chain link ends the chain there, and the fallback steps back to the latest
+   eligible print; only failures on eligible candidates abort the tick (codex, #14: one
+   ineligible slot used to abort every tick and block all later slots). Prices come from a `PriceSource` trait (canonical print of a boundary,
    next strictly advancing print, latest first-of-second print; `TapeSource` replays a tape)
    and transactions from a `Chain` trait. The Hermes API key is read only from
    `METALBOOK_HERMES_API_KEY` (`HermesConfig::from_env`), never from a file, and `Debug`

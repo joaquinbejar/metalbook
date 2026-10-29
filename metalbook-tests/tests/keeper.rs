@@ -352,3 +352,90 @@ fn test_lost_races_are_benign() {
     assert!(r.settled && r.slots == 0, "{r:?}");
     assert_eq!(read_settlement(&env, &series).samples, 30);
 }
+
+/// Codex's reproduction on #14: slot 0's canonical print has conf 1_000_000 at a price of about
+/// 4_000_000 (25% against the series' 1%), so the program would reject it. The keeper skips
+/// it, still posts the 29 later slots, and settles the window once its delay has passed.
+#[test]
+fn test_ineligible_canonical_slot_is_skipped_not_blocking() {
+    let (mut env, args) = listed();
+    let series = args.series();
+    let mut t = tape(None);
+    let b0 = EXPIRY - WINDOW_S;
+    let i0 = t
+        .iter()
+        .position(|m| {
+            m.prev_publish_time < b0 && b0 <= m.publish_time && m.publish_time <= b0 + TOLERANCE_S
+        })
+        .unwrap();
+    t[i0].conf = 1_000_000;
+    let source = TapeSource::new(FEED_XAU, t.clone());
+    env.set_time(EXPIRY + 60);
+    let r = Keeper.tick(&mut Svm(&mut env), &source, &series).unwrap();
+    assert!(r.slots == 29 && r.skipped >= 1 && !r.settled, "{r:?}");
+    assert_eq!(read_settlement(&env, &series).filled_slots & 1, 0);
+    env.set_time(EXPIRY + 60 + D);
+    let r = Keeper.tick(&mut Svm(&mut env), &source, &series).unwrap();
+    assert!(r.settled, "{r:?}");
+    let valid: Vec<i64> = canonical_slots(&t)
+        .into_iter()
+        .skip(1)
+        .map(Option::unwrap)
+        .collect();
+    let v = read_settlement(&env, &series);
+    assert_eq!((v.method, v.samples, v.price), (0, 29, mean_atoms(&valid)));
+}
+
+/// An ineligible next-print link ends the chain there: no link past it is posted.
+#[test]
+fn test_ineligible_chain_link_ends_the_chain() {
+    let (mut env, args) = listed();
+    let series = args.series();
+    let mut t = tape(Some((EXPIRY - 1_500, EXPIRY)));
+    // The third link after expiry.
+    let mut last = EXPIRY;
+    let mut third = 0;
+    for _ in 0..3 {
+        third = t
+            .iter()
+            .position(|m| m.prev_publish_time <= last && last < m.publish_time)
+            .unwrap();
+        last = t[third].publish_time;
+    }
+    t[third].conf = 1_000_000;
+    env.set_time(EXPIRY + 120);
+    let r = Keeper
+        .tick(&mut Svm(&mut env), &TapeSource::new(FEED_XAU, t), &series)
+        .unwrap();
+    assert!(r.links == 2 && r.skipped >= 1 && !r.settled, "{r:?}");
+    assert_eq!(read_settlement(&env, &series).next_len, 2);
+}
+
+/// The fallback is the latest *eligible* print at or before expiry.
+#[test]
+fn test_fallback_steps_back_past_ineligible_prints() {
+    let (mut env, args) = listed();
+    let series = args.series();
+    let mut t = tape(None);
+    let latest = t
+        .iter()
+        .rposition(|m| m.prev_publish_time < m.publish_time && m.publish_time <= EXPIRY)
+        .unwrap();
+    t[latest].conf = 1_000_000;
+    let previous = t[..latest]
+        .iter()
+        .rposition(|m| m.prev_publish_time < m.publish_time)
+        .unwrap();
+    env.set_time(EXPIRY + 60);
+    let r = Keeper
+        .tick(
+            &mut Svm(&mut env),
+            &TapeSource::new(FEED_XAU, t.clone()),
+            &series,
+        )
+        .unwrap();
+    assert!(r.fallback && r.skipped >= 1, "{r:?}");
+    let d = env.account(&series).data;
+    let stored = i64::from_le_bytes(d[416..424].try_into().unwrap());
+    assert_eq!(stored, t[previous].publish_time);
+}

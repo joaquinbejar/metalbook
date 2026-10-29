@@ -18,6 +18,10 @@ pub struct SeriesView {
     pub expiry: i64,
     /// Pyth feed id of the underlying.
     pub feed_id: [u8; 32],
+    /// Pinned Pyth exponent.
+    pub expo: i8,
+    /// Largest accepted `conf / price`, basis points.
+    pub max_conf_bps: u16,
     /// Oracle terms (snapshot).
     pub params: OracleParams,
     /// Stored settlement candidates.
@@ -38,6 +42,8 @@ impl SeriesView {
             state: SeriesState::try_from(s.state)?,
             expiry: s.expiry,
             feed_id: s.feed_id,
+            expo: s.expo,
+            max_conf_bps: s.max_conf_bps,
             params,
             candidates: s.settlement(&params)?,
         })

@@ -1,6 +1,6 @@
 //! One keeper step for one series.
 
-use metalbook_core::{Decision, SeriesState, UnixTimestamp};
+use metalbook_core::{accept_print, Decision, SeriesState, UnixTimestamp};
 
 use crate::{Chain, KeeperError, PriceSource, PrintMsg, SeriesView};
 
@@ -17,6 +17,9 @@ pub struct TickReport {
     pub settled: bool,
     /// Whether the series was already settled or voided (nothing to do).
     pub done: bool,
+    /// Canonical prints skipped because the series' own rules reject them (confidence,
+    /// exponent, price): the program would reject them too, so their candidate stays empty.
+    pub skipped: u32,
 }
 
 /// The settlement keeper.
@@ -67,6 +70,10 @@ impl Keeper {
             if let Some(m) =
                 source.canonical_at(&feed, boundary, i64::from(p.slot_tolerance_s()), now)?
             {
+                if !eligible(&view, &m) {
+                    report.skipped = report.skipped.saturating_add(1);
+                    continue;
+                }
                 if post(chain, series, &feed, &m, Intent::Slot(i))? {
                     report.slots = report.slots.saturating_add(1);
                 }
@@ -90,6 +97,11 @@ impl Keeper {
             let Some(m) = source.next_after(&feed, last, now)? else {
                 break;
             };
+            if !eligible(&view, &m) {
+                // The canonical next link is ineligible: no later link can chain past it.
+                report.skipped = report.skipped.saturating_add(1);
+                break;
+            }
             if post(chain, series, &feed, &m, Intent::Link(m.publish_time))? {
                 report.links = report.links.saturating_add(1);
             }
@@ -101,10 +113,22 @@ impl Keeper {
             .expiry
             .checked_sub(i64::from(p.fallback_lookback_s()))
             .ok_or(KeeperError::Config("lookback overflow"))?;
-        if let Some(m) = source.latest_at_or_before(&feed, view.expiry.min(now), earliest, now)? {
-            if m.publish_time > view.candidates.parts().fallback_time {
-                report.fallback = post(chain, series, &feed, &m, Intent::Fallback(m.publish_time))?;
+        // The latest *eligible* print: step back past ineligible ones.
+        let stored = view.candidates.parts().fallback_time;
+        let mut upto = view.expiry.min(now);
+        while let Some(m) = source.latest_at_or_before(&feed, upto, earliest, now)? {
+            if m.publish_time <= stored {
+                break;
             }
+            if eligible(&view, &m) {
+                report.fallback = post(chain, series, &feed, &m, Intent::Fallback(m.publish_time))?;
+                break;
+            }
+            report.skipped = report.skipped.saturating_add(1);
+            upto = m
+                .publish_time
+                .checked_sub(1)
+                .ok_or(KeeperError::Config("time overflow"))?;
         }
 
         // 4. Settle as soon as the cascade allows it.
@@ -125,6 +149,20 @@ fn read<C: Chain>(chain: &C, series: &C::Address) -> Result<SeriesView, KeeperEr
         .account_data(series)?
         .ok_or(KeeperError::Decode("series account not found"))?;
     SeriesView::decode(&data)
+}
+
+/// Whether the series accepts `m` (`metalbook_core::accept_print`, the program's own rule).
+fn eligible(view: &SeriesView, m: &PrintMsg) -> bool {
+    accept_print(
+        m.price,
+        m.conf,
+        m.expo,
+        m.publish_time,
+        m.prev_publish_time,
+        view.expo,
+        view.max_conf_bps,
+    )
+    .is_ok()
 }
 
 /// The candidate a post is meant to store.
