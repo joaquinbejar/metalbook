@@ -248,13 +248,18 @@ struct WireMetadata {
 /// or confidence that is not an integer. A missing `prev_publish_time` is read as 0, which
 /// `accept_print` rejects.
 pub fn parse_update(body: &str, feed: &[u8; 32]) -> Result<HermesUpdate, KeeperError> {
-    let wire: WirePriceUpdate = serde_json::from_str(body)
-        .map_err(|e| KeeperError::Source(format!("bad Hermes JSON: {e}")))?;
+    // No error below quotes the response: serde's messages can echo field values
+    // (`invalid type: string "…"`), so only the error category and position are kept.
+    let wire: WirePriceUpdate = serde_json::from_str(body).map_err(|e| {
+        KeeperError::Source(format!(
+            "bad Hermes JSON ({:?} error at line {}, column {})",
+            e.classify(),
+            e.line(),
+            e.column()
+        ))
+    })?;
     if wire.binary.encoding != "base64" {
-        return Err(KeeperError::Source(format!(
-            "unexpected encoding {}",
-            wire.binary.encoding
-        )));
+        return Err(KeeperError::Source("unexpected binary encoding".into()));
     }
     let want = hex(feed);
     let parsed = wire
@@ -280,7 +285,7 @@ pub fn parse_update(body: &str, feed: &[u8; 32]) -> Result<HermesUpdate, KeeperE
         .ok_or_else(|| KeeperError::Source("no binary update".into()))?;
     let update_data = base64::engine::general_purpose::STANDARD
         .decode(raw)
-        .map_err(|e| KeeperError::Source(format!("bad base64 update: {e}")))?;
+        .map_err(|_| KeeperError::Source("binary update is not valid base64".into()))?;
     Ok(HermesUpdate {
         print: PrintMsg {
             price,
@@ -291,6 +296,17 @@ pub fn parse_update(body: &str, feed: &[u8; 32]) -> Result<HermesUpdate, KeeperE
         },
         update_data,
     })
+}
+
+/// Removes the API key from an error message, as a last line of defence: no error built in
+/// this module quotes a response, but a transport error could carry text from elsewhere.
+fn redact(e: KeeperError, key: &str) -> KeeperError {
+    match e {
+        KeeperError::Source(msg) if !key.is_empty() && msg.contains(key) => {
+            KeeperError::Source(msg.replace(key, "<redacted>"))
+        }
+        other => other,
+    }
 }
 
 fn hex(bytes: &[u8; 32]) -> String {
@@ -312,6 +328,15 @@ pub struct HermesSource<H: HttpGet> {
 
 impl<H: HttpGet> HermesSource<H> {
     fn request(&self, url: &str, feed: &[u8; 32]) -> Result<Option<HermesUpdate>, KeeperError> {
+        self.request_unredacted(url, feed)
+            .map_err(|e| redact(e, self.config.api_key()))
+    }
+
+    fn request_unredacted(
+        &self,
+        url: &str,
+        feed: &[u8; 32],
+    ) -> Result<Option<HermesUpdate>, KeeperError> {
         let response = self.http.get(url, &[self.config.auth_header()])?;
         match response.status {
             200 => parse_update(&response.body, feed).map(Some),

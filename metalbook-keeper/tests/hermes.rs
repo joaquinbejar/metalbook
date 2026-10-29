@@ -314,3 +314,41 @@ fn test_latest_fallback_when_nothing_after_t_is_published() {
         );
     }
 }
+
+/// A malformed response that echoes the key in mistyped or unexpected fields never puts the
+/// key, or any response text, into the error (codex, #17).
+#[test]
+fn test_errors_never_echo_the_key_or_the_response() {
+    let key = "test-key";
+    let bodies = [
+        format!(
+            r#"{{"binary":{{"encoding":"base64","data":["AA=="]}},"parsed":[{{"id":"{0}","price":{{"price":"1","conf":"1","expo":"{key}","publish_time":1}},"metadata":{{}}}}]}}"#,
+            hex(&FEED)
+        ),
+        format!(r#"{{"binary":{{"encoding":"{key}","data":["AA=="]}},"parsed":[]}}"#),
+        format!(
+            r#"{{"binary":{{"encoding":"base64","data":["{key}!"]}},"parsed":[{{"id":"{0}","price":{{"price":"1","conf":"1","expo":-3,"publish_time":1}},"metadata":{{"prev_publish_time":0}}}}]}}"#,
+            hex(&FEED)
+        ),
+        format!("{key} is not json"),
+    ];
+    for body in bodies {
+        let err = parse_update(&body, &FEED).unwrap_err();
+        let shown = format!("{err:?} {err}");
+        assert!(!shown.contains(key), "{shown}");
+        // And through the source, with the key-redaction backstop.
+        struct Echo(String);
+        impl HttpGet for Echo {
+            fn get(&self, _: &str, _: &[(String, String)]) -> Result<HttpResponse, KeeperError> {
+                Ok(HttpResponse {
+                    status: 200,
+                    body: self.0.clone(),
+                })
+            }
+        }
+        let err = HermesSource::new(config(), Echo(body.clone()))
+            .first_at_or_after(&FEED, 1)
+            .unwrap_err();
+        assert!(!format!("{err:?} {err}").contains(key));
+    }
+}
