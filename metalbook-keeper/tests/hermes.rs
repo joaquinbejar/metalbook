@@ -140,19 +140,19 @@ fn test_parse_recorded_shape_fixture() {
     // Wrong feed, bad JSON, wrong encoding, non-integer price, missing prev_publish_time.
     assert!(matches!(
         parse_update(&json, &[0; 32]),
-        Err(KeeperError::Source(_))
+        Err(KeeperError::MalformedResponse { .. })
     ));
     assert!(matches!(
         parse_update("{", &FEED),
-        Err(KeeperError::Source(_))
+        Err(KeeperError::MalformedResponse { .. })
     ));
     assert!(matches!(
         parse_update(&json.replace("base64", "hex"), &FEED),
-        Err(KeeperError::Source(_))
+        Err(KeeperError::MalformedResponse { .. })
     ));
     assert!(matches!(
         parse_update(&json.replace("\"4023655\"", "\"4.0\""), &FEED),
-        Err(KeeperError::Source(_))
+        Err(KeeperError::MalformedResponse { .. })
     ));
     let no_prev = json.replace(", \"prev_publish_time\": 1793289596", "");
     assert_eq!(
@@ -350,5 +350,39 @@ fn test_errors_never_echo_the_key_or_the_response() {
             .first_at_or_after(&FEED, 1)
             .unwrap_err();
         assert!(!format!("{err:?} {err}").contains(key));
+    }
+}
+
+/// Codex's repro on #17: the key is "test-key" and Hermes answers 200 with the JSON string
+/// "test-key". The error is a fixed category; neither its Display, its Debug, nor the line the
+/// `hermes` example prints (`hermes: {e}`) contains the key.
+#[test]
+fn test_reflected_key_never_reaches_display_debug_or_the_example_output() {
+    struct Echo;
+    impl HttpGet for Echo {
+        fn get(&self, _: &str, _: &[(String, String)]) -> Result<HttpResponse, KeeperError> {
+            Ok(HttpResponse {
+                status: 200,
+                body: "\"test-key\"".to_string(),
+            })
+        }
+    }
+    let err = HermesSource::new(config(), Echo)
+        .first_at_or_after(&FEED, 1)
+        .unwrap_err();
+    assert_eq!(
+        err,
+        KeeperError::MalformedResponse {
+            status: 200,
+            byte_len: 10,
+            what: "JSON of the wrong shape"
+        }
+    );
+    for shown in [
+        format!("{err}"),
+        format!("{err:?}"),
+        format!("hermes: {err}"),
+    ] {
+        assert!(!shown.contains("test-key"), "{shown}");
     }
 }

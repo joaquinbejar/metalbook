@@ -12,6 +12,17 @@ pub enum KeeperError {
     /// The price source failed.
     #[error("price source failed: {0}")]
     Source(String),
+    /// A price-source response could not be used. Carries only the HTTP status, the body
+    /// length and a fixed category, never response content (which could reflect the API key).
+    #[error("malformed price-source response (HTTP {status}, {byte_len} bytes): {what}")]
+    MalformedResponse {
+        /// HTTP status of the response.
+        status: u16,
+        /// Length of the body, bytes.
+        byte_len: usize,
+        /// What was wrong, from a fixed set of descriptions.
+        what: &'static str,
+    },
     /// A chain operation (read, post, settle) failed.
     #[error("chain operation failed: {0}")]
     Chain(String),

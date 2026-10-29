@@ -244,22 +244,27 @@ struct WireMetadata {
 ///
 /// # Errors
 ///
-/// `KeeperError::Source` for malformed JSON, a non-base64 encoding, a missing feed, or a price
-/// or confidence that is not an integer. A missing `prev_publish_time` is read as 0, which
-/// `accept_print` rejects.
+/// `KeeperError::MalformedResponse` (status, length and a fixed category, never the body) for
+/// malformed JSON, a non-base64 encoding, a missing feed, or a price or confidence that is not
+/// an integer. A missing `prev_publish_time` is read as 0, which `accept_print` rejects.
 pub fn parse_update(body: &str, feed: &[u8; 32]) -> Result<HermesUpdate, KeeperError> {
-    // No error below quotes the response: serde's messages can echo field values
-    // (`invalid type: string "…"`), so only the error category and position are kept.
+    // No error quotes the response: serde's messages can echo field values (`invalid type:
+    // string "…"`), so every failure is a fixed category with the status and length only.
+    let bad = |what: &'static str| KeeperError::MalformedResponse {
+        status: 200,
+        byte_len: body.len(),
+        what,
+    };
     let wire: WirePriceUpdate = serde_json::from_str(body).map_err(|e| {
-        KeeperError::Source(format!(
-            "bad Hermes JSON ({:?} error at line {}, column {})",
-            e.classify(),
-            e.line(),
-            e.column()
-        ))
+        bad(match e.classify() {
+            serde_json::error::Category::Syntax => "not JSON",
+            serde_json::error::Category::Eof => "truncated JSON",
+            serde_json::error::Category::Data => "JSON of the wrong shape",
+            serde_json::error::Category::Io => "unreadable body",
+        })
     })?;
     if wire.binary.encoding != "base64" {
-        return Err(KeeperError::Source("unexpected binary encoding".into()));
+        return Err(bad("unexpected binary encoding"));
     }
     let want = hex(feed);
     let parsed = wire
@@ -267,25 +272,25 @@ pub fn parse_update(body: &str, feed: &[u8; 32]) -> Result<HermesUpdate, KeeperE
         .unwrap_or_default()
         .into_iter()
         .find(|p| p.id.trim_start_matches("0x").eq_ignore_ascii_case(&want))
-        .ok_or_else(|| KeeperError::Source(format!("feed {want} missing from the response")))?;
+        .ok_or_else(|| bad("requested feed missing"))?;
     let price = parsed
         .price
         .price
         .parse::<i64>()
-        .map_err(|_| KeeperError::Source("price is not an integer".into()))?;
+        .map_err(|_| bad("price is not an integer"))?;
     let conf = parsed
         .price
         .conf
         .parse::<u64>()
-        .map_err(|_| KeeperError::Source("conf is not an integer".into()))?;
+        .map_err(|_| bad("confidence is not an integer"))?;
     let raw = wire
         .binary
         .data
         .first()
-        .ok_or_else(|| KeeperError::Source("no binary update".into()))?;
+        .ok_or_else(|| bad("no binary update"))?;
     let update_data = base64::engine::general_purpose::STANDARD
         .decode(raw)
-        .map_err(|_| KeeperError::Source("binary update is not valid base64".into()))?;
+        .map_err(|_| bad("binary update is not valid base64"))?;
     Ok(HermesUpdate {
         print: PrintMsg {
             price,
@@ -301,10 +306,16 @@ pub fn parse_update(body: &str, feed: &[u8; 32]) -> Result<HermesUpdate, KeeperE
 /// Removes the API key from an error message, as a last line of defence: no error built in
 /// this module quotes a response, but a transport error could carry text from elsewhere.
 fn redact(e: KeeperError, key: &str) -> KeeperError {
-    match e {
-        KeeperError::Source(msg) if !key.is_empty() && msg.contains(key) => {
-            KeeperError::Source(msg.replace(key, "<redacted>"))
+    let scrub = |msg: String| {
+        if key.is_empty() {
+            msg
+        } else {
+            msg.replace(key, "<redacted>")
         }
+    };
+    match e {
+        KeeperError::Source(msg) => KeeperError::Source(scrub(msg)),
+        KeeperError::Chain(msg) => KeeperError::Chain(scrub(msg)),
         other => other,
     }
 }
@@ -318,8 +329,11 @@ fn hex(bytes: &[u8; 32]) -> String {
     s
 }
 
-/// A [`PriceSource`] backed by Hermes. Each query is one or two requests to
-/// `/v2/updates/price/{t}` (first update with `publish_time >= t`).
+/// A [`PriceSource`] backed by Hermes (`/v2/updates/price/{t}`, the first update with
+/// `publish_time >= t`, and `/v2/updates/price/latest`). Requests per query: `canonical_at`
+/// and `next_after` one; `latest_at_or_before` at most three (the update at or after `t`, or
+/// `latest` when there is none yet, then one step back). Errors never carry response content,
+/// and the API key is scrubbed from any error text.
 #[derive(Debug)]
 pub struct HermesSource<H: HttpGet> {
     config: HermesConfig,

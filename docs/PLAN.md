@@ -538,8 +538,12 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    `/v2/updates/price/latest` as the anchor when nothing at or after `t` is published yet.
    `canonical_at(t)` is the first update at or after `t` when within tolerance and
    `prev < t`; `next_after(t)` the first at or after `t + 1` with `prev <= t`;
-   `latest_at_or_before(t)` follows `prev_publish_time` back from the anchor (at most two
-   requests). The parsed response (`price` and `conf` as strings, `expo`, `publish_time`,
+   `latest_at_or_before(t)` follows `prev_publish_time` back from the anchor (at most three
+   requests: the update at or after `t` or `latest`, then one step back). Errors never carry
+   response content: a malformed body is `KeeperError::MalformedResponse { status, byte_len,
+   what }` with a fixed category (serde messages can echo field values, which could reflect
+   the key), and the configured key is scrubbed from any error text as a backstop (codex,
+   #17). The parsed response (`price` and `conf` as strings, `expo`, `publish_time`,
    `metadata.prev_publish_time`) becomes a `PrintMsg`, and the base64 binary update is kept
    for the receiver posting of M7b-2. HTTP is one blocking crate, `ureq` 3.5 with rustls
    (no native TLS), behind an `HttpGet` trait so tests replay fixtures. The API key comes only

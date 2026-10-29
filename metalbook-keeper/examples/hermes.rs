@@ -5,7 +5,8 @@
 //! ```
 //!
 //! Without `--live` it only prints this usage. Without a key it exits with status 2 and a clear
-//! message; it never reads a key from a file. The authentication scheme is unverified: set
+//! message; it never reads a key from a file. Errors are printed with their `Display`, which
+//! never contains response content or the key (tested in `tests/hermes.rs`). The authentication scheme is unverified: set
 //! `METALBOOK_HERMES_AUTH=header:<name>` if Hermes expects another header.
 
 #![allow(clippy::disallowed_macros, missing_docs)]
