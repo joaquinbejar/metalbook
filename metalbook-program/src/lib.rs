@@ -3,7 +3,7 @@
 //!
 //! Implemented: the config, the expiry calendars, series creation (series account, long mint
 //! and USDC vault), writers minting and closing contracts (milestone 2), and settlement from
-//! Pyth prints (milestone 3). Redemption and claims follow in milestone 4 (`docs/PLAN.md`). The payoff, collateral and vault accounting come from `metalbook-core`.
+//! Pyth prints (milestone 3), and redemption and writer claims (milestone 4) (`docs/PLAN.md`). The payoff, collateral and vault accounting come from `metalbook-core`.
 //!
 //! Instruction data is a one-byte [`Instruction`] tag followed by the fields documented on
 //! each handler, little endian.
@@ -51,6 +51,10 @@ pub enum Instruction {
     SampleSettlement = 6,
     /// [`processor::settlement::settle`].
     Settle = 7,
+    /// [`processor::claims::redeem`].
+    Redeem = 8,
+    /// [`processor::claims::claim_writer`].
+    ClaimWriter = 9,
 }
 
 impl TryFrom<u8> for Instruction {
@@ -66,6 +70,8 @@ impl TryFrom<u8> for Instruction {
             5 => Ok(Self::Close),
             6 => Ok(Self::SampleSettlement),
             7 => Ok(Self::Settle),
+            8 => Ok(Self::Redeem),
+            9 => Ok(Self::ClaimWriter),
             _ => Err(MetalbookError::InvalidInstruction),
         }
     }
@@ -95,5 +101,7 @@ pub fn process_instruction(
             processor::settlement::sample_settlement(program_id, accounts, rest)
         }
         Instruction::Settle => processor::settlement::settle(program_id, accounts, rest),
+        Instruction::Redeem => processor::claims::redeem(program_id, accounts, rest),
+        Instruction::ClaimWriter => processor::claims::claim_writer(program_id, accounts, rest),
     }
 }

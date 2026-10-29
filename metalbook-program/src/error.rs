@@ -101,6 +101,8 @@ pub enum MetalbookError {
     OracleExponentMismatch = 142,
     /// A print with a non-positive price or `prev_publish_time <= 0`.
     InvalidPrint = 143,
+    /// The writer position has already claimed its residual.
+    AlreadyClaimed = 144,
 }
 
 impl From<MetalbookError> for ProgramError {

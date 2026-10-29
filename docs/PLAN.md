@@ -124,8 +124,8 @@ struct Writer { hdr: Hdr, series: Address, owner: Address, written: u64, claimed
 | 4 | `close` | writer | before expiry: burn `n` long tokens held by the writer, withdraw collateral |
 | 5 | `sample_settlement` | anyone | add a Pyth print as a window slot, chain link or fallback (tag 6) |
 | 6 | `settle` | anyone | after the window: fix the settlement price, or void (4.3) (tag 7) |
-| 7 | `redeem` | long holder | burn long tokens, receive `payout × n` |
-| 8 | `claim_writer` | writer | receive `written × (max_payout − payout)` |
+| 7 | `redeem` | long holder | burn long tokens, receive `payout × n` (tag 8) |
+| 8 | `claim_writer` | writer | receive `written × (max_payout − payout)` (tag 9) |
 | 9 | `set_mark_vol` | keeper | update `mark_vol` (no effect on settlement) |
 | 10 | `void_series` | | folded into `settle` (milestone 3) |
 
@@ -441,6 +441,24 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
      snapshot, the real XAU update, the writer owner check).
 4. **Redeem and claim.** *Done when* end-to-end ITM, ATM, OTM for both kinds and both metals
    empty the vault exactly.
+
+   Delivered (M4): `redeem` (tag 8; `[holder, series, holder_long, holder_usdc, vault,
+   usdc_mint, long_mint, token_program]`, data `contracts: u64`) burns the holder's own long
+   tokens and pays `n × payout` to the holder's own USDC account, only on a `Settled` series
+   (after a void long tokens are worth nothing). `claim_writer` (tag 9; `[writer, series,
+   position, writer_usdc, vault, usdc_mint, token_program]`) pays `written × (max_payout −
+   payout)` once per position (`AlreadyClaimed`, 144), on a `Settled` or `Voided` series, so
+   a void returns every writer's whole collateral. State is written before each CPI; a zero
+   amount skips the transfer. The sweep of unclaimed funds after a redeem deadline (4.6) is
+   not implemented: open question 7. Tests (`metalbook-tests/tests/claims.rs`, 9 LiteSVM
+   tests): end to end for put and capped call on XAU and XAG, in, at and out of the money
+   and a call above its cap, with two writers (one partly closed), long tokens moved to two
+   holders, redeems in chunks and claims before or after them: the vault ends at exactly 0,
+   each actor receives exactly its share, and the totals equal the deposits. A 1.333-oz
+   multiplier and a mean of 3995.000033 USD show the writer keeping the rounding dust. Every
+   account rule has a negative test with forged accounts (series, positions, token
+   accounts), plus wrong vault, mints and program, read-only accounts, unsigned signers,
+   double claims, over-redeeming and claims before settlement.
 5. **Pricing and quoting.** optfix marks, quotebook series, maker config. *Done when* a LiteSVM
    demo quotes and settles an option token through quotebook at an optfix price.
 6. **Benchmarks and docs.** *Done when* `docs/benchmarks.md` lists CU for every instruction and
