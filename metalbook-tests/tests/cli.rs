@@ -51,10 +51,7 @@ impl Rpc for Svm<'_> {
             .svm
             .send_transaction(tx.clone())
             .map(|_| ())
-            .map_err(|e| CliError::TxFailed {
-                signature: tx.signatures[0].to_string(),
-                err: format!("{:?} {:?}", e.err, e.meta.logs),
-            })
+            .map_err(|e| CliError::Rpc(format!("{:?} {:?}", e.err, e.meta.logs)))
     }
 }
 
@@ -73,7 +70,7 @@ fn devnet_params() -> ParamsFile {
 
 fn custom_code(result: Result<String, CliError>, code: u32) {
     match result {
-        Err(CliError::TxFailed { err, .. }) => {
+        Err(CliError::Rpc(err)) => {
             assert!(err.contains(&format!("Custom({code})")), "{err}");
         }
         other => panic!("expected custom error {code}, got {other:?}"),

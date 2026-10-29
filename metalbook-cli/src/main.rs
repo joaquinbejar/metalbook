@@ -4,7 +4,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use metalbook_cli::params::{parse_address, parse_kind, parse_underlying, parse_usd, ParamsFile};
-use metalbook_cli::rpc::{JsonRpc, UreqPost};
+use metalbook_cli::rpc::Cluster;
 use metalbook_cli::{
     calendar_json, config_json, create_series_ix, describe, init_config_ix, read_calendar,
     read_config, read_keypair, read_series, series_json, set_calendar_ix, set_config_ix, submit,
@@ -138,14 +138,14 @@ fn read_params(path: &str) -> Result<ParamsFile, CliError> {
 }
 
 fn print_json(value: &serde_json::Value) -> Result<(), CliError> {
-    let text = serde_json::to_string_pretty(value).map_err(|_| CliError::Encode("JSON output"))?;
-    println!("{text}");
+    // `{:#}` is serde_json's pretty printer, which cannot fail on a `Value`.
+    println!("{value:#}");
     Ok(())
 }
 
 /// Signs and sends `instruction`, or prints it with `--dry-run`.
 fn finish(
-    rpc: &mut JsonRpc<UreqPost>,
+    rpc: &mut Cluster,
     instruction: Instruction,
     signer: &Keypair,
     dry_run: bool,
@@ -177,7 +177,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
         println!("{}", pda::series(&program_id, &spec).0);
         return Ok(());
     }
-    let mut rpc = JsonRpc::new(UreqPost::new(), required(&cli.url, "--url")?);
+    let mut rpc = Cluster::new(required(&cli.url, "--url")?);
     let signer = || read_keypair(required(&cli.keypair, "--keypair")?);
     match &cli.command {
         Command::ShowConfig => {

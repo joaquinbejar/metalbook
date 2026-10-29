@@ -3,8 +3,8 @@
 //! signed with a keypair file and sent over JSON-RPC, plus decoded reads of the config,
 //! calendars and series.
 //!
-//! The commands are written against the [`Rpc`] trait: [`rpc::JsonRpc`] is the network
-//! implementation, and the LiteSVM tests drive the same commands through an in-process one.
+//! The commands are written against the [`Rpc`] trait: [`rpc::Cluster`] (`solana-rpc-client`)
+//! is the network implementation, and the LiteSVM tests drive the same commands through an in-process one.
 
 pub mod error;
 pub mod params;
@@ -91,12 +91,12 @@ pub fn submit<R: Rpc>(
     let blockhash = rpc.latest_blockhash()?;
     let mut tx = Transaction::new_with_payer(instructions, Some(&signer.pubkey()));
     tx.try_sign(&[signer], blockhash)
-        .map_err(|_| CliError::Encode("signing (the instructions need another signer)"))?;
+        .map_err(|_| CliError::Sign("the instructions need another signer"))?;
     let signature = tx
         .signatures
         .first()
         .map(ToString::to_string)
-        .ok_or(CliError::Encode("no signature"))?;
+        .ok_or(CliError::Sign("no signature"))?;
     rpc.send(&tx)?;
     Ok(signature)
 }
