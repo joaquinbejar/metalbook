@@ -527,6 +527,24 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    code table and the make targets. Open question 7 was assessed in 4.6 and decided.
 7. **Devnet.** *Done when* a full series lifecycle runs on devnet against live Pyth XAU.
 
+   Delivered first (M7a, no devnet yet): `metalbook-keeper` (off-chain, std), the honest
+   keeper of the 4.3 trust assumption. `Keeper::tick` reads a series, restores its oracle
+   terms and candidates with `metalbook-core` (so keeper and program apply the same rules),
+   posts the canonical print of every empty window slot, every missing next-print link in
+   order, and the latest fallback if it is later than the stored one, then settles as soon as
+   the cascade allows. Prices come from a `PriceSource` trait (canonical print of a boundary,
+   next strictly advancing print, latest first-of-second print; `TapeSource` replays a tape)
+   and transactions from a `Chain` trait. The Hermes API key is read only from
+   `METALBOOK_HERMES_API_KEY` (`HermesConfig::from_env`), never from a file, and `Debug`
+   redacts it; the Hermes HTTP client and the Pyth receiver posting arrive with devnet
+   (M7b). The keeper decodes the series layout by restated offsets (module `layout`), checked
+   against genuine accounts in LiteSVM; it moves to a shared layout crate if the program's
+   layouts are extracted like quotebook's. LiteSVM tests (`metalbook-tests/tests/keeper.rs`)
+   with synthetic tapes: a keeper alone settles at the full-window mean; against an adversary
+   who posted the 20 lowest canonical slots, one keeper tick within `D` posts the other 10 and
+   settles at the full-window mean; with a 25-minute halt over the window it settles on the
+   next-print chain from `expiry + D`; ticks are idempotent. Run `tick` more often than `D`.
+
 ## Verified facts (checked 2026-10-28)
 
 - Pyth publishes both feeds (Hermes `/v2/price_feeds?query=XAU&asset_type=metal` and `XAG`):

@@ -56,6 +56,7 @@ writer and the vault empties exactly.
 | `metalbook-program` | Pinocchio 0.11 program (`cdylib`). Validates every account, restores the core types from account data (rejecting unreachable states), applies the transition, writes state, then makes the token CPIs. |
 | `metalbook-tests` | LiteSVM tests of the program and the deterministic CU benchmark (`docs/benchmarks.md`). |
 | `metalbook-maker` | Off-chain pricing adapter (milestone 5a): payoff-aware marks behind a `VanillaPricer` trait (a put; a capped call as `C(K) − C(cap)`, error bounds summed), two-sided quotes rounded toward the maker, and quotebook quote terms. |
+| `metalbook-keeper` | Off-chain settlement keeper (milestone 7a): posts every canonical slot, chain link and the latest fallback within `D`, then settles; `PriceSource` and `Chain` traits; the Hermes API key only from `METALBOOK_HERMES_API_KEY`. |
 | `lint-control` | Failing control proving that the workspace lints reject panicking macros (shared with optfix, quotebook and varswap). |
 
 External pieces: SPL Token and the associated token program (CPI through `pinocchio-token`
@@ -162,9 +163,9 @@ expiry `+ D`, since neither leaves a subset to choose). MetalBook is therefore c
 this assumption: **at least one honest keeper submits, within `D` of any change, every
 available candidate of higher priority than the one that would otherwise settle**: every
 window slot with a canonical print, every chain link and the latest fallback. The default
-keeper is run by the protocol (milestone 7) and posts every canonical print from Hermes as
-soon as it exists; anyone else can run one, since every instruction it needs is
-permissionless.
+keeper is run by the protocol (`metalbook-keeper`, milestone 7) and posts every canonical
+print from Hermes as soon as it exists; anyone else can run one, since every instruction it
+needs is permissionless.
 
 ## Metals market hours
 

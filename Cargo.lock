@@ -2080,6 +2080,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "metalbook-keeper"
+version = "0.1.0"
+dependencies = [
+ "metalbook-core",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "metalbook-maker"
 version = "0.1.0"
 dependencies = [
@@ -2113,6 +2121,7 @@ dependencies = [
  "litesvm",
  "litesvm-token",
  "metalbook-core",
+ "metalbook-keeper",
  "metalbook-maker",
  "optionstratlib",
  "pyth-lite",
