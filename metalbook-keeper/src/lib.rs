@@ -31,7 +31,10 @@ mod source;
 
 pub use chain::Chain;
 pub use error::KeeperError;
-pub use hermes::{HermesConfig, DEFAULT_HERMES_URL, HERMES_API_KEY_VAR, HERMES_URL_VAR};
+pub use hermes::{
+    parse_update, AuthScheme, HermesConfig, HermesSource, HermesUpdate, HttpGet, HttpResponse,
+    UreqHttp, DEFAULT_HERMES_URL, HERMES_API_KEY_VAR, HERMES_AUTH_VAR, HERMES_URL_VAR,
+};
 pub use keeper::{Keeper, TickReport};
 pub use layout::{SeriesView, SERIES_LEN};
 pub use source::{PriceSource, PrintMsg, TapeSource};

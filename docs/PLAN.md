@@ -532,6 +532,30 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    the remaining gaps (admin and writer instruction builders, M7b-2 receiver posting, an RPC
    `Chain` and a keeper binary).
 
+   M7b-1 (Hermes source, no live calls in tests): `HermesSource` implements `PriceSource`
+   over Hermes `GET /v2/updates/price/{t}`, which returns the **first** update with
+   `publish_time >= t` (verified in the Hermes source, `RequestTime::FirstAfter`), and
+   `/v2/updates/price/latest` as the anchor when nothing at or after `t` is published yet.
+   `canonical_at(t)` is the first update at or after `t` when within tolerance and
+   `prev < t`; `next_after(t)` the first at or after `t + 1` with `prev <= t`;
+   `latest_at_or_before(t)` follows `prev_publish_time` back from the anchor (at most two
+   requests). The parsed response (`price` and `conf` as strings, `expo`, `publish_time`,
+   `metadata.prev_publish_time`) becomes a `PrintMsg`, and the base64 binary update is kept
+   for the receiver posting of M7b-2. HTTP is one blocking crate, `ureq` 3.5 with rustls
+   (no native TLS), behind an `HttpGet` trait so tests replay fixtures. The API key comes only
+   from `METALBOOK_HERMES_API_KEY`. **UNVERIFIED until the first live call: the auth scheme.**
+   The default is `Authorization: Bearer <key>` (the only source found is Mysten Labs'
+   deepbook SDK documentation; Pyth's documentation does not state it);
+   `METALBOOK_HERMES_AUTH=header:<name>` switches to a named header. A 401 or 403 says so.
+   `examples/hermes.rs --live` fetches one XAU print and exits with status 2 and a clear
+   message when the key is not set. Tests: a recorded-shape fixture, the request URL and
+   header, status handling (404 is "nothing yet", 401/403/500 are errors), and, over a
+   synthetic tape served with Hermes' semantics, answers identical to `TapeSource` for every
+   query (including the `latest` anchor). M7b-2, the Pyth receiver posting (Wormhole
+   encoded VAA, `verify_encoded_vaa_v1`, then the receiver's `post_update` for a `Full`
+   `PriceUpdateV2`; `post_update_atomic` only gives `Partial`), waits for a Hermes key to
+   record a guardian-signed update for LiteSVM tests against the mainnet programs.
+
    Delivered first (M7a, no devnet yet): `metalbook-keeper` (off-chain, std), the honest
    keeper of the 4.3 trust assumption. `Keeper::tick` reads a series, restores its oracle
    terms and candidates with `metalbook-core` (so keeper and program apply the same rules),
@@ -606,6 +630,10 @@ whenever it is added or touched.
 | `thiserror` (maker) | 2.0.21 | `2.0` |
 | `optionstratlib` (maker, dev) | 0.23.0 | `0.23` |
 | `rust_decimal_macros` (maker, dev) | 1.40.0 | `1.40` |
+| `ureq` (keeper, rustls only) | 3.5.0 | `3.5` |
+| `serde` (keeper) | 1.0.229 | `1.0` |
+| `serde_json` (keeper) | 1.0.154 | `1.0` |
+| `base64` (keeper) | 0.23.1 | `0.23` |
 | `litesvm-token` (dev) | 0.18.1 | `0.18` |
 | `solana-account` (dev) | pinned by LiteSVM | `4.3` |
 | `solana-clock` (dev) | pinned by LiteSVM (`~3.2.0`) | `3.2` |
