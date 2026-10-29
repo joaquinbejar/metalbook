@@ -17,8 +17,9 @@
 //! This proves that each stored value is canonical (no choice of price for a given slot, link
 //! or fallback). It does not prove that the settlement price is independent of which prints
 //! were posted: an adversary alone can post a subset, or an older fallback, and settle on it
-//! after `D`. That case relies on the honest-keeper assumption of `docs/PLAN.md` 4.3, and on
-//! improvements restarting `D` (tested in the crate's unit tests and in LiteSVM).
+//! after `D`. That case relies on the honest-keeper assumption of `docs/PLAN.md` 4.3 (every
+//! available higher-priority candidate submitted within `D`) and on improvements restarting
+//! `D` (tested in the crate's unit tests and in LiteSVM).
 
 #![allow(
     clippy::unwrap_used,

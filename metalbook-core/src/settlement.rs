@@ -12,9 +12,12 @@
 //! *Which* candidates are stored when `settle` runs does depend on what was posted: an
 //! adversary alone can post a subset of the window or an older fallback and settle on it.
 //! Every candidate is therefore monotonically improvable (more slots, a longer chain, a later
-//! fallback), each improvement restarts that candidate's challenge delay `D`, and liveness
-//! and correctness assume at least one honest keeper posts the complete window or chain (or
-//! the latest fallback) within `D` (`docs/PLAN.md` 4.3, trust assumption).
+//! fallback). An improvement restarts that candidate's challenge delay `D`, except that a
+//! complete window settles at once and a complete chain from `window_end + D`, since neither
+//! leaves a subset to choose. Correctness assumes at least one honest keeper submits, within
+//! `D` of any change, every available candidate of higher priority than the one that would
+//! otherwise settle: all canonical window slots, all chain links and the latest fallback
+//! (`docs/PLAN.md` 4.3, trust assumption).
 //!
 //! Prices are raw Pyth mantissas with the series' pinned exponent; they are converted to
 //! USDC atoms per ounce once, when the settlement price is fixed.

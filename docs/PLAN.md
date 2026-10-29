@@ -262,14 +262,22 @@ and fallback, but not the choice of *which* candidates exist when `settle` runs:
 else posting, an adversary can post a favorable subset of the window (at least
 `min_samples`, or any subset after the hard deadline), a partial chain, or an older fallback
 (say `expiry − 3000` at 1000 while `expiry − 2000` at 2000 exists), wait `D` and settle on
-it. Every candidate is monotonically improvable and every improvement restarts that
-candidate's `D` (more slots for the window, the next link for the chain, a later print for
-the fallback), so the protocol is correct under this assumption: **at least one honest keeper
-posts the complete window, or the complete chain, or the latest fallback, within `D` of any
-change**. The default honest keeper is the protocol-run keeper of milestone 7, which posts
-every canonical print from Hermes as soon as it exists; anyone else may run one. Tested:
-a later fallback and extra window slots posted during `D` replace the worse candidate and
-restart `D`.
+it. Every candidate is monotonically improvable, and an improvement to a candidate that can
+settle on a subset restarts that candidate's `D`: more slots for a window that is not yet
+complete, the next link for a partial chain, a later print for the fallback. Two cases do not
+wait on a restarted `D`, because they leave no subset to choose: a **complete window** (every
+slot filled) settles at once from `window_end`, and a **complete chain** (`k` links) settles
+from `window_end + D` whenever its last link arrived. The protocol is correct under this
+assumption: **at least one honest keeper submits, within `D` of any change, every available
+candidate of higher priority than the one that would otherwise settle**: every window slot
+that has a canonical print, every next-print link that exists, and the latest fallback.
+Posting only one kind is not enough: the latest fallback does not protect against an
+attacker's partial-window mean, which has priority over it, and during an outage a complete
+window may not exist, so the keeper posts the slots and links that do. The default honest
+keeper is the protocol-run keeper of milestone 7, which posts every canonical print from
+Hermes as soon as it exists; anyone else may run one. Tested: a later fallback and extra
+window slots posted during `D` replace the worse candidate and restart `D`, and completing
+the window settles at once.
 
 Priority (codex, after #3): a candidate that exists but is still inside its delay is
 pending, not absent, so `settle` returns `SettlementNotReady` instead of falling through to a
