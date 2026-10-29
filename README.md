@@ -52,7 +52,7 @@ writer and the vault empties exactly.
 
 | Crate | Role |
 | --- | --- |
-| `metalbook-core` | `no_std`, integers only, never panics. Unit newtypes, series terms, payoff and collateral, the vault ledger of a series (`SeriesLedger`), and the settlement rules: canonical window slots, the next-print chain, the fallback and the settlement cascade (`SettlementState`). Property-tested against independent references. |
+| `metalbook-core` | `no_std`, integers only, never panics. Unit newtypes, series terms, payoff and collateral, the vault ledger of a series (`SeriesLedger`), the settlement rules (canonical window slots, the next-print chain, the fallback and the settlement cascade, `SettlementState`), and the on-chain account layouts (`accounts`), shared by the program, the keeper and SDKs. Property-tested against independent references. |
 | `metalbook-program` | Pinocchio 0.11 program (`cdylib`). Validates every account, restores the core types from account data (rejecting unreachable states), applies the transition, writes state, then makes the token CPIs. |
 | `metalbook-tests` | LiteSVM tests of the program and the deterministic CU benchmark (`docs/benchmarks.md`). |
 | `metalbook-maker` | Off-chain pricing adapter (milestone 5a): payoff-aware marks behind a `VanillaPricer` trait (a put; a capped call as `C(K) − C(cap)`, error bounds summed), two-sided quotes rounded toward the maker, and quotebook quote terms. |

@@ -537,9 +537,11 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    and transactions from a `Chain` trait. The Hermes API key is read only from
    `METALBOOK_HERMES_API_KEY` (`HermesConfig::from_env`), never from a file, and `Debug`
    redacts it; the Hermes HTTP client and the Pyth receiver posting arrive with devnet
-   (M7b). The keeper decodes the series layout by restated offsets (module `layout`), checked
-   against genuine accounts in LiteSVM; it moves to a shared layout crate if the program's
-   layouts are extracted like quotebook's. LiteSVM tests (`metalbook-tests/tests/keeper.rs`)
+   (M7b). The account layouts (`Config`, `Calendar`, `Series`, `Writer`, the loaders and the series'
+   accessors) moved from the program into `metalbook_core::accounts`, as quotebook did with
+   quotebook-core, so the program, the keeper and any SDK decode from one source; off-chain
+   readers use `accounts::read`, which copies from unaligned buffers. The LiteSVM tests keep
+   their own restated offsets, so a layout change still has to be made twice on purpose. LiteSVM tests (`metalbook-tests/tests/keeper.rs`)
    with synthetic tapes: a keeper alone settles at the full-window mean; against an adversary
    who posted the 20 lowest canonical slots, one keeper tick within `D` posts the other 10 and
    settles at the full-window mean; with a 25-minute halt over the window it settles on the

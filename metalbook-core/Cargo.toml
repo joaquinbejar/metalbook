@@ -11,6 +11,7 @@ keywords = ["options", "gold", "silver", "solana", "no-std"]
 categories = ["finance", "no-std"]
 
 [dependencies]
+bytemuck = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

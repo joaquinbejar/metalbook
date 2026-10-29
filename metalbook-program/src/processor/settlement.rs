@@ -41,8 +41,8 @@ pub fn sample_settlement(
     let s = load_series(program_id, series)?;
     let now = Clock::get()?.unix_timestamp;
     let mut ledger = open_ledger(&s)?;
-    let params = s.oracle_params()?;
-    let mut candidates = s.settlement(&params)?;
+    let params = s.oracle_params().map_err(MetalbookError::from)?;
+    let mut candidates = s.settlement(&params).map_err(MetalbookError::from)?;
 
     let print = {
         let bytes = price_update
@@ -106,8 +106,8 @@ pub fn settle(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -
     }
     let mut ledger = open_ledger(&s)?;
     let mut ledger = ledger_after_expiry(&mut ledger, now, s.expiry)?;
-    let params = s.oracle_params()?;
-    let candidates = s.settlement(&params)?;
+    let params = s.oracle_params().map_err(MetalbookError::from)?;
+    let candidates = s.settlement(&params).map_err(MetalbookError::from)?;
     let decision = candidates
         .decide(&params, UnixTimestamp::new(s.expiry), now)
         .map_err(MetalbookError::from)?;
@@ -139,7 +139,7 @@ pub fn settle(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -
 
 /// The series' ledger, which must still accept prints: `Active` or `Expired`.
 fn open_ledger(s: &Series) -> Result<SeriesLedger, MetalbookError> {
-    let ledger = s.ledger()?;
+    let ledger = s.ledger().map_err(MetalbookError::from)?;
     match ledger.state() {
         SeriesState::Active | SeriesState::Expired => Ok(ledger),
         SeriesState::Settled | SeriesState::Voided => Err(MetalbookError::SeriesAlreadySettled),

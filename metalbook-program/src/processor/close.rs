@@ -47,7 +47,7 @@ pub fn close_series(
     let s = load_series(program_id, series)?;
 
     // Nothing owed, from the ledger alone.
-    let ledger = s.ledger()?;
+    let ledger = s.ledger().map_err(MetalbookError::from)?;
     if !matches!(ledger.state(), SeriesState::Settled | SeriesState::Voided) {
         return Err(MetalbookError::SeriesNotSettled.into());
     }

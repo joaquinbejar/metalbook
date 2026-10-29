@@ -2076,6 +2076,7 @@ dependencies = [
 name = "metalbook-core"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "proptest",
 ]
 

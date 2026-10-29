@@ -17,6 +17,8 @@
 //! cannot settle on it: every improvement the keeper posts restarts `D`, and a complete window
 //! settles at once.
 //!
+//! The series account is decoded with the program's own layouts (`metalbook_core::accounts`).
+//!
 //! The Hermes API key is read only from the environment ([`HermesConfig::from_env`]), never
 //! from a file, and never printed.
 

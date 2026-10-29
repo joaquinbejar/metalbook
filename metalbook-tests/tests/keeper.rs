@@ -238,13 +238,14 @@ fn test_keeper_decodes_only_genuine_series() {
     let view = SeriesView::decode(&data).unwrap();
     assert_eq!((view.expiry, view.feed_id), (EXPIRY, FEED_XAU));
     assert_eq!(view.params.min_samples(), MIN_SAMPLES);
-    assert!(matches!(
-        SeriesView::decode(&data[..500]),
-        Err(KeeperError::Decode(_))
+    let bad = Err(KeeperError::Core(
+        metalbook_core::CoreError::InvalidAccountData,
     ));
+    assert_eq!(SeriesView::decode(&data[..500]), bad);
     let config = env.account(&config_address()).data;
-    assert!(matches!(
-        SeriesView::decode(&config),
-        Err(KeeperError::Decode(_))
-    ));
+    assert_eq!(SeriesView::decode(&config), bad);
+    // Unaligned buffers decode too (RPC data has no alignment guarantee).
+    let mut shifted = vec![0u8];
+    shifted.extend_from_slice(&data);
+    assert_eq!(SeriesView::decode(&shifted[1..]).unwrap(), view);
 }

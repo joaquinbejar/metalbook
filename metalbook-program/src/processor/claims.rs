@@ -45,7 +45,7 @@ pub fn redeem(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -
     validate::token_account(holder_long, long_mint.address(), holder.address())?;
     validate::token_account(holder_usdc, usdc_mint.address(), holder.address())?;
 
-    let mut ledger = s.ledger()?;
+    let mut ledger = s.ledger().map_err(MetalbookError::from)?;
     let amount = ledger.redeem(n).map_err(MetalbookError::from)?;
     {
         let mut bytes = series.try_borrow_mut()?;
@@ -117,7 +117,7 @@ pub fn claim_writer(
     }
     validate::owned_by(position, program_id)?;
 
-    let mut ledger = s.ledger()?;
+    let mut ledger = s.ledger().map_err(MetalbookError::from)?;
     let amount = {
         let position_address = Address::new_from_array(position.address().to_bytes());
         let mut bytes = position.try_borrow_mut()?;
