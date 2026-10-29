@@ -3,8 +3,9 @@
 //! Every account is `#[repr(C)]`, `bytemuck::Pod`, 8-aligned and without implicit padding:
 //! padding is an explicit `_pad` field. Enums and addresses are stored as integers and byte
 //! arrays and validated on load. The first byte is an [`AccountTag`], the second the layout
-//! [`VERSION`]. Version 2 (milestone 3) adds the oracle snapshot and the settlement
-//! candidates of `docs/PLAN.md` 4.2 to 4.5.
+//! [`VERSION`]. Version 2 (milestone 3) added the oracle snapshot and the settlement
+//! candidates of `docs/PLAN.md` 4.2 to 4.5; version 3 records the series' rent payer and drops
+//! the redeem deadline (4.6).
 
 use bytemuck::Pod;
 use metalbook_core::{
@@ -16,7 +17,7 @@ use metalbook_core::{
 use crate::error::MetalbookError;
 
 /// Layout version of every account written by this build.
-pub const VERSION: u8 = 2;
+pub const VERSION: u8 = 3;
 
 /// Number of expiries a calendar holds.
 pub const CALENDAR_CAPACITY: usize = 64;
@@ -161,10 +162,9 @@ mod layout {
         pub fallback_lookback_s: u32,
         /// Hard deadline after expiry, seconds.
         pub hard_deadline_s: u32,
-        /// Redeem deadline after settlement, seconds (milestone 4).
-        pub redeem_deadline_s: u32,
-        /// Padding.
-        pub _pad3: [u8; 4],
+        /// Padding (was `redeem_deadline_s` in version 2; no deadline exists, `docs/PLAN.md`
+        /// 4.6).
+        pub _pad3: [u8; 8],
     }
 
     /// Allowed expiries of one underlying. PDA `["calendar", [underlying]]`. 520 bytes.
@@ -189,7 +189,7 @@ mod layout {
     }
 
     /// One option series: terms, snapshot of the config it needs, and vault accounting. PDA
-    /// `["series", [underlying], [kind], strike_le, expiry_le, cap_le, multiplier_le]`. 472 bytes.
+    /// `["series", [underlying], [kind], strike_le, expiry_le, cap_le, multiplier_le]`. 504 bytes.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Pod, Zeroable)]
     #[repr(C)]
     pub struct Series {
@@ -263,8 +263,8 @@ mod layout {
         pub fallback_lookback_s: u32,
         /// Snapshot: hard deadline after expiry, seconds.
         pub hard_deadline_s: u32,
-        /// Snapshot: redeem deadline after settlement, seconds.
-        pub redeem_deadline_s: u32,
+        /// Padding (was `redeem_deadline_s` in version 2).
+        pub _pad6: [u8; 4],
         /// Sum of the raw mantissas of the filled slots, `u128` little endian.
         pub sample_sum: [u8; 16],
         /// Bitmap of filled slots.
@@ -296,6 +296,9 @@ mod layout {
         pub settlement_samples: u16,
         /// Padding.
         pub _pad5: [u8; 6],
+        /// Who paid the rent of the series, its vault and its long mint at `create_series`:
+        /// `close_series` returns the rent there (`docs/PLAN.md` 4.6).
+        pub rent_payer: [u8; 32],
     }
 
     /// One writer's position in one series. PDA `["writer", series, owner]`. 80 bytes.
@@ -507,7 +510,7 @@ mod tests {
     fn test_account_sizes_are_fixed() {
         assert_eq!(core::mem::size_of::<Config>(), 280);
         assert_eq!(core::mem::size_of::<Calendar>(), 520);
-        assert_eq!(core::mem::size_of::<Series>(), 472);
+        assert_eq!(core::mem::size_of::<Series>(), 504);
         assert_eq!(core::mem::size_of::<Writer>(), 80);
         assert_eq!(core::mem::align_of::<Series>(), 8);
     }

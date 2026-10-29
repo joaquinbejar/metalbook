@@ -257,7 +257,9 @@ impl SeriesLedger {
         Ok(())
     }
 
-    /// A holder burns `n` long tokens after settlement: returns `n × payout`.
+    /// A holder burns `n` long tokens after settlement: returns `n × payout`. Also after a void,
+    /// where the payout is zero, so that every long token can be burned and the series closed
+    /// (`docs/PLAN.md` 4.6).
     ///
     /// # Errors
     ///
@@ -265,7 +267,9 @@ impl SeriesLedger {
     /// `InvariantViolated` if the vault would go below zero.
     #[must_use = "the payout must be transferred"]
     pub fn redeem(&mut self, n: Contracts) -> Result<UsdcAtoms, CoreError> {
-        self.require(SeriesState::Settled, CoreError::SeriesNotSettled)?;
+        if !matches!(self.state, SeriesState::Settled | SeriesState::Voided) {
+            return Err(CoreError::SeriesNotSettled);
+        }
         require_nonzero(n)?;
         let longs = self
             .longs_outstanding
@@ -529,11 +533,9 @@ mod tests {
             l.settle(StrikeUsd::new(1)),
             Err(CoreError::SeriesNotExpired)
         );
-        assert_eq!(
-            l.redeem(Contracts::new(1)),
-            Err(CoreError::SeriesNotSettled)
-        );
         assert_eq!(SeriesLedger::restore(*l.terms(), l.parts()), Ok(l));
+        // Long tokens can still be burned, for nothing, so the series can be closed.
+        assert_eq!(l.redeem(Contracts::new(3)), Ok(UsdcAtoms::ZERO));
         assert_eq!(
             l.claim_writer(Contracts::new(3)),
             Ok(UsdcAtoms::new(12_000_000_000))

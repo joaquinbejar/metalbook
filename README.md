@@ -67,7 +67,7 @@ which decodes Pyth `PriceUpdateV2` accounts.
 | --- | --- | --- | --- | --- |
 | `Config` | PDA `["config"]` | metalbook | 280 B | admin; USDC mint and token program; strike tick, multiplier, feed id and Pyth exponent per metal; cap grid; listing time; oracle terms (window, slots, tolerance, `min_samples`, `k`, challenge delay `D`, fallback lookback, hard deadline) |
 | `Calendar` | PDA `["calendar", [underlying]]` | metalbook | 520 B | up to 64 allowed expiries, strictly increasing |
-| `Series` | PDA `["series", [underlying], [kind], strike, expiry, cap, multiplier]` (little endian) | metalbook | 472 B | terms; a **snapshot** of every config value it uses; long mint and vault; vault ledger; settlement candidates; settlement method, price and sample count |
+| `Series` | PDA `["series", [underlying], [kind], strike, expiry, cap, multiplier]` (little endian) | metalbook | 504 B | terms; a **snapshot** of every config value it uses; long mint and vault; vault ledger; settlement candidates; settlement method, price and sample count; rent payer |
 | Long mint | PDA `["long", series]` | SPL Token | 82 B | mint authority the series, no freeze authority |
 | Vault | associated token account of the series for USDC | SPL Token | 165 B | the collateral |
 | `Writer` | PDA `["writer", series, owner]` | metalbook | 80 B | contracts written and not closed; whether the residual was claimed |
@@ -94,6 +94,8 @@ its accounts and fields in `metalbook-program/src/processor/`.
 | 7 | `settle` | anyone | runs the settlement cascade: fixes the price, or voids the series |
 | 8 | `redeem` | long holder | burns `n` own long tokens, receives `n × payout` |
 | 9 | `claim_writer` | writer | once: receives `written × (max_payout − payout)` |
+| 10 | `close_series` | anyone | once nothing is owed: closes the vault and the series, rent (and any unowed vault balance) to the `create_series` payer |
+| 11 | `close_position` | anyone | closes a claimed (or empty) writer position, rent to the writer |
 
 Compute units of each: [`docs/benchmarks.md`](docs/benchmarks.md).
 
@@ -106,9 +108,9 @@ Compute units of each: [`docs/benchmarks.md`](docs/benchmarks.md).
                                     │                                    │
                            first sample or settle at or after expiry ◄──┘
                                     ▼
-                                 Expired ──settle──► Settled ──► redeem, claim_writer
+                                 Expired ──settle──► Settled ──► redeem, claim_writer ──► close_series
                                     │
-                                    └──settle (no price by the hard deadline)──► Voided ──► claim_writer
+                                    └──settle (no price by the hard deadline)──► Voided ──► claim_writer, redeem (0) ──► close_series
 ```
 
 1. The admin publishes the expiry calendar of each metal (only times when the metal trades).
@@ -124,9 +126,10 @@ Compute units of each: [`docs/benchmarks.md`](docs/benchmarks.md).
    claimable forever, and nothing ever moves USDC to anyone but its owner (PLAN 4.6). When
    all have, the vault holds exactly zero. After a void, long tokens pay nothing and writers
    recover all their collateral.
-7. Once nothing is owed, anyone will be able to close the series, its vault and the claimed
-   writer positions and return the rent to whoever paid it (next item after milestone 4; the
-   SPL Token long mint cannot be closed).
+7. Once nothing is owed, anyone can close the series and its vault (`close_series`) and the
+   claimed writer positions (`close_position`), returning the rent to whoever paid it. A
+   voided series closes once its long tokens are burned (for nothing). The SPL Token long
+   mint cannot be closed.
 
 ## Settlement and its trust assumption
 
@@ -200,7 +203,7 @@ Every failure is `ProgramError::Custom(code)`. Codes never change; new ones are 
 | 112 | `InvalidCap` | A call's cap is not on the grid or not above the strike, or a put's cap is not zero |
 | 113 | `SeriesExpired` | Mint or close at or after expiry |
 | 114 | `SeriesNotExpired` | Settle before expiry |
-| 115 | `SeriesNotSettled` | Redeem or claim before settlement (redeem also after a void) |
+| 115 | `SeriesNotSettled` | Redeem, claim or close before settlement |
 | 116 | `SeriesAlreadySettled` | Sample or settle after settlement or a void |
 | 117 | `InsufficientCollateral` | Reserved; the token program rejects an underfunded deposit itself |
 | 118 | `InsufficientLongTokens` | Redeem more long tokens than outstanding |
@@ -230,6 +233,9 @@ Every failure is `ProgramError::Custom(code)`. Codes never change; new ones are 
 | 142 | `OracleExponentMismatch` | The price update's exponent is not the series' pinned exponent |
 | 143 | `InvalidPrint` | Non-positive price, or `prev_publish_time <= 0` |
 | 144 | `AlreadyClaimed` | The writer position has already claimed |
+| 145 | `SeriesNotEmpty` | Close while long tokens or writer claims are outstanding, or the vault owes USDC |
+| 146 | `InvalidRentPayer` | The rent destination is not the account that paid it |
+| 147 | `PositionNotClaimed` | Close a writer position that has not claimed |
 
 ## Building and testing
 

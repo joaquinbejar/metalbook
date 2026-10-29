@@ -230,7 +230,7 @@ fn test_create_series_put_and_capped_call_on_both_metals() {
     ] {
         let series = env.create_series(args);
         let d = env.account(&series).data;
-        assert_eq!(d.len(), 472);
+        assert_eq!(d.len(), 504);
         assert_eq!(env.account(&series).owner, PROGRAM_ID);
         assert_eq!(d[0], 3, "tag");
         assert_eq!(d[4], 0, "Active");

@@ -174,7 +174,7 @@ pub fn create_series(
         s.challenge_delay_s = cfg.challenge_delay_s;
         s.fallback_lookback_s = cfg.fallback_lookback_s;
         s.hard_deadline_s = cfg.hard_deadline_s;
-        s.redeem_deadline_s = cfg.redeem_deadline_s;
+        s.rent_payer = payer.address().to_bytes();
         s.settle_method = state::SETTLE_METHOD_NONE;
     }
 
