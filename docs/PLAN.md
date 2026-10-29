@@ -145,10 +145,12 @@ MatchBook: optional `create_market` with the long mint as base, done off-chain b
   slots: a window slot `i` (fixed `t_i = window_start + i × 60 s`, `publish_time` in
   `[t_i, t_i + tol]`, `tol` 5 to 10 s, slot not yet filled); a next-print candidate
   (`publish_time > window_end`, replacing the largest stored candidate if smaller); or the
-  fallback candidate (`publish_time <= expiry`, replacing it if later). The first call after
+  fallback candidate (`expiry − X <= publish_time <= expiry`, replacing it if later). The first call after
   `expiry` moves the series from `Active` to `Expired`; `mint` and `close` also check the
   clock, so the transition being lazy never lets a mint through after expiry.
-- `settle`: `now >= window_end` and the rules of 4.2/4.3; idempotent (second call fails).
+- `settle`: the per-step earliest times of 4.3 (step 1 from `window_end`, step 2 once `k`
+  distinct candidates exist, steps 3 to 5 from the hard deadline); idempotent (second call
+  fails).
 - `redeem` / `claim_writer`: series `Settled`; burn from the holder's account; destination
   owned by the signer; writer claims once.
 - Forged-account negative test for every rule above.
@@ -185,16 +187,21 @@ nearest cent, then payout per contract is rounded down.
 
 The program cannot tell that a print was "the first" or "the last" one, so every candidate
 is monotonically improvable until finalization: anyone may replace a stored candidate with a
-better one (3.3), and `settle` finalizes only after `window_end + grace` (proposed 1 hour).
-Cascade at `settle`:
+better one (3.3). Each step of the cascade has its own earliest settle time, so a short
+halt waits for the market to reopen instead of settling at a partial or stale price:
 
-1. `Window`: at least `min_samples` filled slots: mean of the window.
-2. `NextPrint`: mean of the `k = 5` smallest-`publish_time` prints after `window_end` stored.
-3. Partial window: mean of the filled slots if at least one exists.
-4. `Fallback`: the latest submitted print in `[expiry − X, expiry]` (proposed `X = 24 h`).
-5. `void_series` only if all of these are empty, after the hard deadline (proposed 7 days):
-   collateral goes back to writers, since longs have no price. Never void silently: the
-   method used is stored and logged.
+1. `Window`: from `window_end`, as soon as at least `min_samples` slots are filled: mean
+   of the window. (Backfilled slots can still arrive after `window_end`, see 4.2.)
+2. `NextPrint`: as soon as `k = 5` candidates with distinct `publish_time > window_end` are
+   stored: their mean. A print whose `publish_time` is already stored is rejected, so one
+   print posted five times cannot fill all `k`.
+3. From the hard deadline (proposed 7 days after expiry) only: `NextPrint` with 1 to `k − 1`
+   candidates (their mean), else the partial window mean if at least one slot is filled.
+4. `Fallback`, from the hard deadline: the latest submitted print in `[expiry − X, expiry]`
+   (proposed `X = 24 h`).
+5. `void_series` only if all of these are empty at the hard deadline: collateral goes back
+   to writers, since longs have no price. Never void silently: the method used is stored and
+   logged.
 
 ### 4.4 Metals market hours
 
@@ -222,8 +229,10 @@ creation. Tested: change each parameter mid-life and check settlement is unchang
 
 ### 4.6 Unredeemed longs
 
-After a redeem deadline (proposed 1 year after settlement) unclaimed USDC can be swept to a
-treasury by anyone; until then it stays locked in the series vault. Open question 7.
+After a redeem deadline (proposed 1 year after settlement) anyone can sweep both unclaimed
+shares to a treasury: `unredeemed_longs × payout + Σ unclaimed writers × (max_payout −
+payout)`, so the vault still empties exactly. Until then the USDC stays locked in the series
+vault. Open question 7.
 
 ### 4.7 Quoting during the settlement window
 
