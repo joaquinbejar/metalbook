@@ -16,8 +16,11 @@
 //!   `0.4 S D σ min(√ε, ε / (2√T'))`: `√T − √T' <= √ε` always, and `1/(2√t)` is largest at
 //!   `t = T'`, so a `T` near zero is covered too. Each partial is taken at its sup over the
 //!   interval, so the bound is not a first-order estimate. At metal prices and `T` of days or
-//!   more it is about `10^-15` dollars per ounce; only for `T` within a few ulps of zero does
-//!   the `√ε` form, about `10^-7`, apply.
+//!   more this input term is about `10^-15` dollars per ounce; only for `T` within a few ulps
+//!   of zero does the `√ε` form, about `10^-7`, apply.
+//!
+//! In total the bound is dominated by optfix's envelope: about `8.7 × 10^-12` dollars per
+//! ounce at `S, K` around 2400.
 //!
 //! The greeks are optfix's, within its published envelopes (`optfix::DELTA_ERR` and the
 //! relative ones); the error bound covers the value only, as the trait specifies. Greek
