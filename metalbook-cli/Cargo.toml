@@ -1,0 +1,37 @@
+[package]
+name = "metalbook-cli"
+description = "Thin admin CLI for metalbook: the admin and listing instructions over JSON-RPC, and account reads"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "metalbook-admin"
+path = "src/main.rs"
+
+[dependencies]
+metalbook-sdk = { workspace = true }
+# The generation metalbook-sdk builds instructions with (LiteSVM's, docs/PLAN.md exception).
+solana-address = { workspace = true, features = ["decode"] }
+solana-instruction = { workspace = true }
+solana-transaction = { workspace = true, features = ["wincode"] }
+solana-keypair = { workspace = true }
+solana-signer = { workspace = true }
+solana-hash = { workspace = true, features = ["decode"] }
+wincode = { workspace = true }
+ureq = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+thiserror = { workspace = true }
+clap = { workspace = true }
+
+
+[dev-dependencies]
+solana-transaction = { workspace = true, features = ["wincode", "verify"] }
+
+[lints]
+workspace = true
