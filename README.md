@@ -60,6 +60,7 @@ writer and the vault empties exactly.
 | `metalbook-core` | `no_std`, integers only, never panics. Unit newtypes, series terms, payoff and collateral, the vault ledger of a series (`SeriesLedger`), the settlement rules (canonical window slots, the next-print chain, the fallback and the settlement cascade, `SettlementState`; `accept_print`, the series' acceptance rule for a Pyth print), and the on-chain account layouts (`accounts`), shared by the program, the keeper and SDKs. Property-tested against independent references. |
 | `metalbook-program` | Pinocchio 0.11 program (`cdylib`). Validates every account, restores the core types from account data (rejecting unreachable states), applies the transition, writes state, then makes the token CPIs. |
 | `metalbook-tests` | LiteSVM tests of the program and the deterministic CU benchmark (`docs/benchmarks.md`). |
+| `metalbook-sdk` | Client SDK: a builder for every instruction, PDA helpers and account decoders over the shared layouts. |
 | `metalbook-maker` | Off-chain pricing adapter (milestone 5a): payoff-aware marks behind a `VanillaPricer` trait (a put; a capped call as `C(K) − C(cap)`, error bounds summed), two-sided quotes rounded toward the maker, and quotebook quote terms. |
 | `metalbook-keeper` | Off-chain settlement keeper (milestone 7a): posts every eligible canonical slot, chain link and the latest eligible fallback within `D`, then settles; `PriceSource` and `Chain` traits; the Hermes API key only from `METALBOOK_HERMES_API_KEY`. |
 | `lint-control` | Failing control proving that the workspace lints reject panicking macros (shared with optfix, quotebook and varswap). |
@@ -87,7 +88,8 @@ listed afterwards.
 ## Instructions
 
 Instruction data is a one-byte tag followed by little-endian fields. Each handler documents
-its accounts and fields in `metalbook-program/src/processor/`.
+its accounts and fields in `metalbook-program/src/processor/`; `metalbook-sdk` builds all of
+them (`metalbook_sdk::ix`).
 
 | Tag | Instruction | Signer | Effect |
 | ---: | --- | --- | --- |

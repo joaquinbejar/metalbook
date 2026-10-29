@@ -1,5 +1,5 @@
 [workspace]
-members = ["metalbook-core", "metalbook-program", "metalbook-tests", "metalbook-maker", "metalbook-keeper", "lint-control"]
+members = ["metalbook-core", "metalbook-program", "metalbook-tests", "metalbook-maker", "metalbook-keeper", "metalbook-sdk", "lint-control"]
 resolver = "2"
 
 [workspace.package]
@@ -16,6 +16,7 @@ bytemuck = { version = "1.25", default-features = false, features = ["derive", "
 metalbook-core = { path = "metalbook-core", version = "0.1" }
 metalbook-maker = { path = "metalbook-maker" }
 metalbook-keeper = { path = "metalbook-keeper" }
+metalbook-sdk = { path = "metalbook-sdk" }
 # Pinocchio 0.11 generation: decided exception to the latest-stable rule (docs/PLAN.md,
 # Dependencies). pinocchio-token 0.7 and pinocchio-associated-token-account 0.4 are the
 # newest releases built on solana-account-view 2.

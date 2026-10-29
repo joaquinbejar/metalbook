@@ -1,0 +1,19 @@
+[package]
+name = "metalbook-sdk"
+description = "Client SDK for metalbook: instruction builders, PDA helpers and account decoders"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+metalbook-core = { workspace = true }
+# The generation LiteSVM uses, so SDK instructions go straight into the same VM (as
+# quotebook-sdk); exception to the latest-stable rule recorded in docs/PLAN.md.
+solana-address = { workspace = true, features = ["curve25519"] }
+solana-instruction = { workspace = true }
+
+[lints]
+workspace = true

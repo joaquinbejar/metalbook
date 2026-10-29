@@ -529,8 +529,11 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
 
    Runbook (not executed): [`docs/devnet.md`](devnet.md), with what is needed from Joaquin
    (upgrade-authority keypair, devnet SOL, Hermes key, the USDC mint and calendar choices) and
-   the remaining gaps (admin and writer instruction builders, M7b-2 receiver posting, an RPC
-   `Chain` and a keeper binary).
+   the remaining gaps (M7b-2 receiver posting, an RPC `Chain` and a keeper binary). The
+   instruction builders exist: `metalbook-sdk` builds every instruction (tags, accounts and
+   flags as the handlers document them), derives every PDA and decodes every account through
+   `metalbook_core::accounts`; LiteSVM tests check each builder byte for byte against the
+   harness's independent encodings and run a full lifecycle using only the SDK.
 
    Delivered first (M7a, no devnet yet): `metalbook-keeper` (off-chain, std), the honest
    keeper of the 4.3 trust assumption. `Keeper::tick` reads a series, restores its oracle
