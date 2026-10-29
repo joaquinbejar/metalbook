@@ -1,5 +1,5 @@
 [workspace]
-members = ["metalbook-core", "metalbook-program", "metalbook-tests", "lint-control"]
+members = ["metalbook-core", "metalbook-program", "metalbook-tests", "metalbook-maker", "lint-control"]
 resolver = "2"
 
 [workspace.package]
@@ -23,6 +23,15 @@ pinocchio-token = "0.7"
 pinocchio-associated-token-account = "0.4"
 # Unpublished sibling: varswap's pyth-lite, pinned by rev (rules/global_rules.md).
 pyth-lite = { git = "https://github.com/joaquinbejar/varswap", rev = "5cf95aa97ef01b0c4a540327f1501c8dcb7a7811" }
+# Unpublished sibling: quotebook-core, pinned by rev (quotebook main, settle merged). Bumped
+# when quotebook-sdk lands.
+quotebook-core = { git = "https://github.com/joaquinbejar/quotebook", rev = "269e3d9a5aaebc94e20c8b15616bd697acdb53c5" }
+# Off-chain only (metalbook-maker). Versions checked on crates.io on 2026-10-29.
+rust_decimal = "1.43"
+thiserror = "2.0"
+# metalbook-maker tests only: the independent pricing reference.
+optionstratlib = "0.23"
+rust_decimal_macros = "1.40"
 # metalbook-tests only: LiteSVM 0.18.1 (latest) pins these generations of the Solana client
 # crates; same approved exception as optfix.
 litesvm = "0.18"
