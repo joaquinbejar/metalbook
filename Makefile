@@ -23,6 +23,17 @@ program:
 		if [ $$status -ne 0 ]; then echo "program: cargo-build-sbf failed ($$status)"; exit $$status; fi
 	@sh scripts/check-sbf-log.sh target/build-sbf.log
 
+# Build the quotebook program at the pinned quotebook-sdk rev (for the M5 LiteSVM demo) into
+# target/deploy/quotebook_program.so, from cargo's checkout of the git dependency.
+.PHONY: quotebook-program
+quotebook-program:
+	@mkdir -p target
+	@QB=$$(cargo metadata --format-version 1 | python3 -c 'import json,sys,os; print(next(os.path.dirname(os.path.dirname(p["manifest_path"])) for p in json.load(sys.stdin)["packages"] if p["name"]=="quotebook-sdk"))'); \
+		CARGO_TARGET_DIR=$(CURDIR)/target/quotebook cargo build-sbf --manifest-path $$QB/program/Cargo.toml \
+		--arch $(SBF_ARCH) --sbf-out-dir $(CURDIR)/target/deploy > target/build-quotebook.log 2>&1; status=$$?; \
+		if [ $$status -ne 0 ]; then cat target/build-quotebook.log; echo "quotebook-program: build failed ($$status)"; exit $$status; fi
+	@sh scripts/check-sbf-log.sh target/build-quotebook.log
+
 # Failing controls for `program`: the log check must reject a frame-overflow line, and a
 # failing cargo-build-sbf (an unknown sBPF arch) must make `make program` fail.
 .PHONY: program-control
@@ -43,7 +54,7 @@ bench: program
 	cargo test -p metalbook-tests --release --test cu -- --nocapture
 
 # Run every test, including the property tests and the LiteSVM tests (which need
-# `make program` first). METALBOOK_PROPTEST_CASES=<n> overrides the case count.
+# `make program` and `make quotebook-program` first). METALBOOK_PROPTEST_CASES=<n> overrides the case count.
 .PHONY: test
 test:
 	cargo test --workspace --all-features
@@ -76,7 +87,7 @@ doc:
 
 # Pre-push checks: must pass with zero warnings
 .PHONY: pre-push
-pre-push: fmt-check lint lint-control program-control program test doc
+pre-push: fmt-check lint lint-control program-control program quotebook-program test doc
 
 .PHONY: clean
 clean:

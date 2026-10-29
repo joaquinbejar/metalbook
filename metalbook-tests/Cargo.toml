@@ -9,9 +9,14 @@ repository.workspace = true
 publish = false
 
 [dev-dependencies]
-litesvm = { workspace = true }
+litesvm = { workspace = true, features = ["precompiles"] }
 litesvm-token = { workspace = true }
 metalbook-core = { workspace = true }
+metalbook-maker = { workspace = true }
+optionstratlib = { workspace = true }
+quotebook-sdk = { workspace = true }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
 pyth-lite = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true, features = ["curve25519"] }
