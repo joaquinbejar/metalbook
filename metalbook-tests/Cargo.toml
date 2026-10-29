@@ -1,0 +1,24 @@
+[package]
+name = "metalbook-tests"
+description = "LiteSVM tests and CU benchmarks for metalbook-program"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dev-dependencies]
+litesvm = { workspace = true }
+litesvm-token = { workspace = true }
+metalbook-core = { workspace = true }
+solana-account = { workspace = true }
+solana-address = { workspace = true, features = ["curve25519"] }
+solana-clock = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-signer = { workspace = true }
+solana-transaction = { workspace = true }
+
+[lints]
+workspace = true

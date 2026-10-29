@@ -140,6 +140,12 @@ MatchBook: optional `create_market` with the long mint as base, done off-chain b
 
 ### 3.3 Security checks
 
+- `init_config`: only the program's upgrade authority. The instruction takes the program's
+  `ProgramData` account, checks that it is owned by the upgradeable loader and sits at the
+  PDA of `[program_id]` under that loader, and requires its `upgrade_authority` to be present
+  and to be the signing admin, so nobody can front-run the deployment. Negative tests with
+  forged `ProgramData`: wrong owner, wrong address, a different authority, no authority.
+  The LiteSVM harness loads the program through the upgradeable loader.
 - `create_series`: series PDA from the key; expiry present in the `Calendar` PDA for that
   underlying and in the future by at least `min_listing_time`; strike positive and on the
   configured grid; capped call: `cap > strike`; long mint PDA created with series PDA as mint
@@ -330,6 +336,41 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    an independent `u128` reference over the whole `u64` domain, and that random mint/close
    histories, settlement prices and claim orders empty the vault exactly.
 2. **Series, mint, close.** *Done when* LiteSVM tests and a negative test per rule in 3.3 pass.
+
+   Delivered (M2): `metalbook-program` (Pinocchio 0.11, `cdylib`) with `init_config` (tag 0),
+   `set_config` (1), `set_calendar` (2), `create_series` (3), `mint` (4) and `close` (5);
+   instruction data is the tag then little-endian fields, documented on each handler. Account
+   layouts (`#[repr(C)]`, `Pod`, tag and version bytes first): `Config` 144 bytes, `Calendar`
+   520, `Series` 216, `Writer` 80; milestone 3 extends `Series` with the settlement fields and
+   bumps the version. Decisions made while implementing:
+   - `init_config` is accepted only from the program's upgrade authority (read from its
+     `ProgramData`), so nobody can front-run the deployment and take the admin role.
+     `set_config` can rotate the admin; the USDC mint and token program never change.
+   - Token program: SPL Token only (Token-2022 is rejected), copied into each series.
+   - Cap grid: `Config.cap_bps` (up to 4 offsets, at most 60_000 bps); a call's cap must
+     satisfy `cap × 10_000 == K × (10_000 + bps)` exactly. Strike grid: one tick per metal.
+     Multiplier: one value per metal. Listing: `expiry >= now + min_listing_s`.
+   - Canonical bumps: every PDA is found with `find_program_address` when it is created and
+     its bump stored; later instructions re-derive it with the stored bump (`sol_sha256`).
+   - A pre-funded PDA (someone sent lamports to it first) is topped up, allocated and
+     assigned instead of `CreateAccount`, so creation cannot be blocked.
+   - The vault is created with the associated token program's `CreateIdempotent` (anyone can
+     create a valid associated account for the series first) and then checked: SPL Token,
+     USDC mint, owner the series, initialized, no delegate, no close authority (codex
+     review of #7).
+   - Collateral, payout and the vault accounting come from `metalbook-core`
+     (`SeriesLedger::restore` validates the stored fields on every load); state is written
+     before every CPI. `close` is limited to the writer's own `written`, even if the writer
+     holds more long tokens.
+   - SBF stack: handlers are `#[inline(never)]`, and `make program` fails if
+     `cargo-build-sbf` fails or reports a frame above 4 KiB (it only warns, and the overflow
+     silently corrupts locals; found while building M2). `make program-control`, part of
+     `make pre-push`, proves both failure paths.
+   Tests (`metalbook-tests/tests/program.rs`, 30 LiteSVM tests): happy paths for puts and
+   capped calls on both metals, and negative tests for every rule of 3.3 that applies to
+   these instructions, with forged accounts (genuine bytes under another owner or at another
+   address) for the config, program data, calendar, series, positions, USDC mint and token
+   accounts. CU per instruction: `docs/benchmarks.md` (`make bench`, deterministic keys).
 3. **Settlement.** Sampling, window mean, next print, fallback/void. *Done when* tests replay
    XAU fixtures captured from mainnet including a closed-market gap, and every branch of 4.3
    is covered.
@@ -348,8 +389,12 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
   `Metal.XAG/USD` `f2fb02c32b055c805e7238d628e5e9dadef274376114eb1f012337cabe93871e`.
   Their `schedule` attribute is as summarized in 4.4.
 - They are available through the pull oracle (Hermes update, posted by the Pyth receiver as a
-  `PriceUpdateV2`). Not verified: whether sponsored push accounts exist for them on Solana,
-  and Pyth's market-hours documentation page; both checked in milestone 3.
+  `PriceUpdateV2`). Pyth's market-hours documentation page is checked in milestone 3.
+- Sponsored push feeds are not usable for settlement (varswap M2, 2026-10-29): the XAG/USD
+  push account had not updated since 2026-07-03, while XAU/USD and SOL/USD were current;
+  the XAU/USD exponent is −3. So settlement accepts any `Full`-verified `PriceUpdateV2` for
+  the series' feed id, posted by anyone (a keeper pulling from Hermes), never a fixed push
+  account; and the exponent is pinned per series (4.5), not assumed.
 - `PriceUpdateV2` layout and crate versions: see varswap's plan.
 
 ## Dependencies (latest stable on crates.io, checked 2026-10-29)
@@ -371,6 +416,8 @@ whenever it is added or touched.
 | `pinocchio-associated-token-account` | 0.4.0 | `0.4`, see conflict below |
 | `optfix` | unpublished | git, pinned `rev` |
 | `litesvm-token` (dev) | 0.18.1 | `0.18` |
+| `solana-account` (dev) | pinned by LiteSVM | `4.3` |
+| `solana-clock` (dev) | pinned by LiteSVM (`~3.2.0`) | `3.2` |
 | `pyth-solana-receiver-sdk` (dev only) | 2.0.0 | `2.0` |
 
 **Version decision (Joaquin, 2026-10-29): option (b), the Pinocchio 0.11 generation.**

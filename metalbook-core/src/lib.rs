@@ -29,7 +29,7 @@ mod series;
 mod units;
 
 pub use error::CoreError;
-pub use ledger::SeriesLedger;
+pub use ledger::{LedgerParts, SeriesLedger};
 pub use payoff::MILLI_OUNCES_PER_OUNCE;
 pub use series::{OptionKind, SeriesKey, SeriesState, SeriesTerms, Underlying};
 pub use units::{Contracts, OuncesPerContract, StrikeUsd, UnixTimestamp, UsdcAtoms};

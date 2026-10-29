@@ -119,6 +119,7 @@ proptest! {
                 deposited += u128::from(dep.get());
             }
             ledger.check_invariants().unwrap();
+            prop_assert_eq!(SeriesLedger::restore(t, ledger.parts()), Ok(ledger));
             prop_assert_eq!(u128::from(ledger.vault().get()), deposited - withdrawn);
         }
 
@@ -170,6 +171,7 @@ proptest! {
             };
             paid += u128::from(out.get());
             ledger.check_invariants().unwrap();
+            prop_assert_eq!(SeriesLedger::restore(t, ledger.parts()), Ok(ledger));
         }
 
         prop_assert_eq!(ledger.vault(), UsdcAtoms::ZERO);
