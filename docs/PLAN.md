@@ -328,12 +328,27 @@ slot_s`. `sample_sum` adds prices in normalized units (USDC atoms per ounce) usi
 Tested: change each `Config` field mid-life and check sampling, settlement, redeem and claim
 are unchanged.
 
-### 4.6 Unredeemed longs
+### 4.6 Unredeemed longs and unclaimed residuals (open question 7, decided)
 
-After a redeem deadline (proposed 1 year after settlement) anyone can sweep both unclaimed
-shares to a treasury: `unredeemed_longs × payout + Σ unclaimed writers × (max_payout −
-payout)`, so the vault still empties exactly. Until then the USDC stays locked in the series
-vault. Open question 7.
+**Decided (Joaquin, 2026-10-29): claimable forever.** There is no deadline and no sweep:
+`redeem` and `claim_writer` stay open indefinitely, and no instruction ever moves USDC to
+anyone but the holder or writer it is owed to. Once nothing is owed, anyone may close the
+accounts and return their rent to whoever paid it (to be implemented after milestone 4):
+
+- the series account and its USDC vault, when the series is `Settled` or `Voided`, every
+  writer position has claimed (`writers_unclaimed == 0`), the vault owes 0 and the vault's
+  token balance is 0; rent goes to the `create_series` payer, which the series must
+  therefore record;
+- a writer position, once claimed (or with nothing written); rent goes to the writer.
+
+The long mint cannot be closed: SPL Token (unlike Token-2022's mint close authority) has no
+instruction to close a mint, so its rent (about 0.0015 SOL) stays locked. Out-of-the-money
+long tokens may remain in wallets after the series is closed; they were worth nothing.
+Options considered and rejected: a sweep to a treasury after a deadline (a privileged
+destination for user money, late users lose their payout, the protocol looks custodial); a
+sweep with claim-back (the most complex, still a privileged key); giving unredeemed long
+payouts to writers (moves value from holders to writers, and can be gamed). The snapshot
+field `redeem_deadline_s` is unused and goes away in the next layout version.
 
 ### 4.7 Quoting during the settlement window
 
@@ -449,8 +464,7 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    position, writer_usdc, vault, usdc_mint, token_program]`) pays `written × (max_payout −
    payout)` once per position (`AlreadyClaimed`, 144), on a `Settled` or `Voided` series, so
    a void returns every writer's whole collateral. State is written before each CPI; a zero
-   amount skips the transfer. The sweep of unclaimed funds after a redeem deadline (4.6) is
-   not implemented: open question 7. Tests (`metalbook-tests/tests/claims.rs`, 9 LiteSVM
+   amount skips the transfer. Unclaimed funds stay claimable forever (4.6, decided). Tests (`metalbook-tests/tests/claims.rs`, 9 LiteSVM
    tests): end to end for put and capped call on XAU and XAG, in, at and out of the money
    and a call above its cap, with two writers (one partly closed), long tokens moved to two
    holders, redeems in chunks and claims before or after them: the vault ends at exactly 0,
@@ -463,6 +477,12 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    demo quotes and settles an option token through quotebook at an optfix price.
 6. **Benchmarks and docs.** *Done when* `docs/benchmarks.md` lists CU for every instruction and
    README explains the capped call and the market-hours rules.
+
+   Delivered (M6, for milestones 1 to 4; milestone 5 adds its own rows): `docs/benchmarks.md`
+   lists every instruction, including each settlement path; the README covers the product
+   and the capped call, the architecture, accounts, instructions, lifecycle, the settlement
+   cascade with its trust assumption (4.3), the metals market-hours rules (4.4), the error
+   code table and the make targets. Open question 7 was assessed in 4.6 and decided.
 7. **Devnet.** *Done when* a full series lifecycle runs on devnet against live Pyth XAU.
 
 ## Verified facts (checked 2026-10-28)
@@ -526,4 +546,5 @@ the 0.12 generation together once 0.12-compatible token crates are released.
    variance (interesting, but realized is not implied)?
 5. Series listing permissionless within the calendar and grid (proposed) or admin-only?
 6. Use metals' lease rate as optfix carry `q` (depends on optfix question 4)?
-7. Sweep unredeemed USDC to a treasury after a deadline (proposed), or keep it locked forever?
+7. Decided (Joaquin, 2026-10-29): unredeemed and unclaimed USDC stays claimable forever, with
+   permissionless account closing to recover rent once nothing is owed (4.6).
