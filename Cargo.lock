@@ -2738,6 +2738,7 @@ name = "metalbook-maker"
 version = "0.1.0"
 dependencies = [
  "metalbook-core",
+ "optfix",
  "optionstratlib",
  "proptest",
  "quotebook-core",
@@ -2780,7 +2781,6 @@ dependencies = [
  "metalbook-keeper",
  "metalbook-maker",
  "metalbook-sdk",
- "optionstratlib",
  "pyth-lite",
  "quotebook-sdk",
  "rust_decimal",
@@ -3021,6 +3021,14 @@ dependencies = [
  "openssl-src",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "optfix"
+version = "0.1.0"
+source = "git+https://github.com/joaquinbejar/optfix?rev=204e26664a899b623d48013c0654cc292ec81a37#204e26664a899b623d48013c0654cc292ec81a37"
+dependencies = [
+ "bytemuck",
 ]
 
 [[package]]

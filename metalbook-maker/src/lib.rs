@@ -1,9 +1,10 @@
 //! Off-chain pricing adapter for metalbook series (`docs/PLAN.md` 3.2): payoff-aware marks
 //! and two-sided maker quotes in USDC atoms, plus the quotebook quote terms built from them.
 //!
-//! The vanilla pricer is a dependency behind [`VanillaPricer`]: optfix will be one
-//! implementation; the tests use OptionStratLib as an independent reference. This crate only
-//! composes vanilla prices into the series' payoff and turns marks into quotes:
+//! The vanilla pricer is a dependency behind [`VanillaPricer`]; [`OptfixPricer`] implements it
+//! over optfix's fixed-point Black-Scholes-Merton, and the tests check it against
+//! OptionStratLib as an independent reference. This crate only composes vanilla prices into the
+//! series' payoff and turns marks into quotes:
 //!
 //! - a put is one vanilla put at `K`;
 //! - a capped call is the call spread `C(K) − C(cap)`: value and every greek, with the error
@@ -22,11 +23,13 @@
 mod error;
 mod listing;
 mod mark;
+mod optfix_pricer;
 mod pricer;
 mod quote;
 
 pub use error::MakerError;
 pub use listing::{quote_terms, Listing};
 pub use mark::{mark, Mark, MarketInputs, SECONDS_PER_YEAR};
+pub use optfix_pricer::OptfixPricer;
 pub use pricer::{VanillaInputs, VanillaKind, VanillaPricer, VanillaValue};
 pub use quote::{quote_atoms, TwoSided};

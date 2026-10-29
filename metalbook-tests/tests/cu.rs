@@ -196,6 +196,22 @@ fn test_cu_table_is_deterministic_and_written() {
     for (ix, case, cu) in &first {
         writeln!(out, "| `{ix}` | {case} | {cu} |").unwrap();
     }
+    writeln!(out).unwrap();
+    writeln!(
+        out,
+        "Marks and quotes are computed off-chain (`metalbook-maker` with optfix's pricer), so no"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "instruction prices an option and nothing here measures it. If marking moves on-chain,"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "its CU is measured here; optfix's own SBF costs are in its `docs/benchmarks.md`."
+    )
+    .unwrap();
     print!("{out}");
     if let Ok(path) = std::env::var("METALBOOK_BENCH_OUT") {
         std::fs::write(&path, &out).unwrap();

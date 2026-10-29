@@ -1,9 +1,8 @@
 //! Milestone 5 demo in LiteSVM: a writer mints metalbook long tokens, quotes them on quotebook
 //! at a price from `metalbook-maker`, a taker buys through quotebook (signed quote, ed25519
 //! precompile and settle, all built by quotebook-sdk), the series settles from Pyth prints, and
-//! the taker redeems. The vanilla pricer is OptionStratLib for now; optfix replaces it as one
-//! more `VanillaPricer` when its Black-Scholes kernel ships (the remaining part of the
-//! milestone 5 done-when). Run `make program quotebook-program` first.
+//! the taker redeems. The vanilla pricer is optfix's Black-Scholes-Merton
+//! (`metalbook_maker::OptfixPricer`). Run `make program quotebook-program` first.
 
 #![allow(
     clippy::unwrap_used,
@@ -28,15 +27,7 @@ use metalbook_core::{
     OptionKind, OuncesPerContract, SeriesKey, SeriesTerms, StrikeUsd, Underlying,
     UnixTimestamp as MbTime,
 };
-use metalbook_maker::{
-    mark, quote_atoms, quote_terms, Listing, MakerError, MarketInputs, VanillaInputs, VanillaKind,
-    VanillaPricer, VanillaValue,
-};
-use optionstratlib::greeks::{delta, gamma, theta, vega};
-use optionstratlib::prelude::{
-    ExpirationDate, OptionStyle, OptionType, Options, Positive, Side as OslSide,
-};
-use optionstratlib::pricing::black_scholes_model::black_scholes;
+use metalbook_maker::{mark, quote_atoms, quote_terms, Listing, MarketInputs, OptfixPricer};
 use quotebook_sdk::core::instruction::CreateSeriesArgs;
 use quotebook_sdk::core::{BaseLots, Quote, SeriesId, Side};
 use quotebook_sdk::{deployment_id_from_genesis_hash, ix, pda, SettleAccounts};
@@ -46,43 +37,6 @@ use solana_address::Address;
 use solana_signer::Signer;
 
 const QUOTEBOOK: Address = Address::new_from_array([0x51; 32]);
-
-/// Stand-in vanilla pricer until optfix's kernel ships: OptionStratLib's European
-/// Black-Scholes.
-struct Osl;
-
-impl VanillaPricer for Osl {
-    fn price(&self, kind: VanillaKind, i: &VanillaInputs) -> Result<VanillaValue, MakerError> {
-        let pos =
-            |d: Decimal| Positive::new_decimal(d).map_err(|e| MakerError::Pricer(format!("{e:?}")));
-        let o = Options::new(
-            OptionType::European,
-            OslSide::Long,
-            "XAU".to_string(),
-            pos(i.strike)?,
-            ExpirationDate::Days(pos(i.years * dec!(365))?),
-            pos(i.vol)?,
-            Positive::ONE,
-            pos(i.spot)?,
-            i.rate,
-            match kind {
-                VanillaKind::Call => OptionStyle::Call,
-                VanillaKind::Put => OptionStyle::Put,
-            },
-            pos(i.carry)?,
-            None,
-        );
-        let e = |x: String| MakerError::Pricer(x);
-        Ok(VanillaValue {
-            value: black_scholes(&o).map_err(|x| e(format!("{x:?}")))?,
-            delta: delta(&o).map_err(|x| e(format!("{x:?}")))?,
-            gamma: gamma(&o).map_err(|x| e(format!("{x:?}")))?,
-            vega: vega(&o).map_err(|x| e(format!("{x:?}")))?,
-            theta: theta(&o).map_err(|x| e(format!("{x:?}")))?,
-            error_bound: dec!(0.000000001),
-        })
-    }
-}
 
 #[test]
 fn test_quote_and_settle_a_long_token_through_quotebook() {
@@ -186,7 +140,7 @@ fn test_quote_and_settle_a_long_token_through_quotebook() {
         now: NOW,
         market_open: true,
     };
-    let m = mark(&Osl, &terms, &market, WINDOW_S as u32).unwrap();
+    let m = mark(&OptfixPricer, &terms, &market, WINDOW_S as u32).unwrap();
     let q = quote_atoms(&m, dec!(0.50), qb_args.quote_lot_size).unwrap();
     assert!(q.bid < q.ask && q.ask <= 4_000 * USD, "{q:?}");
     let listing = Listing {
