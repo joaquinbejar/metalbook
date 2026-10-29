@@ -4,6 +4,7 @@ Cash-settled European options on XAU/USD and XAG/USD settled in USDC from Pyth. 
 optfix (marks), quotebook (trading), varswap `pyth-lite` (oracle). Fully collateralized: puts by
 strike, calls are capped. Expiries only from the admin `Calendar`, because Pyth metal feeds stop
 updating outside market hours (America/New_York schedule).
+
 ## Conventions shared with matchbook
 
 - Style reference: `~/Repos/Local/matchbook` (read only). Copy its workspace layout, `rust-toolchain.toml`

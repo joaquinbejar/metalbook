@@ -43,8 +43,11 @@ pub struct SeriesKey { pub underlying: Underlying, pub kind: OptionKind,
 pub struct SeriesTerms {
     pub key: SeriesKey,
     pub multiplier: OuncesPerContract,
-    pub cap: StrikeUsd,           // calls only: payoff per ounce is min(S − K, cap − K); see 4.1
+    pub cap: StrikeUsd,           // calls: payoff per ounce is min(S − K, cap − K), cap > K;
+                                  // puts: must be 0, any other value is rejected. See 4.1.
 }
+// cap and multiplier are part of the Series PDA seeds, so two series that differ only in
+// cap or multiplier never collide, and a later Config change cannot alias a live series.
 
 #[repr(u8)]
 pub enum SeriesState { Active, Expired /* past expiry, awaiting price */, Settled, Voided }
@@ -86,7 +89,7 @@ pub enum MetalbookError {
 | --- | --- | --- | --- | --- |
 | `Config` | `["config"]` | metalbook | ~200 | admin: USDC mint, feed ids, oracle params, keeper key |
 | `Calendar` | `["calendar", underlying]` | metalbook | 8 + 8 × 64 | admin: allowed expiry timestamps |
-| `Series` | `["series", underlying, kind, strike_le, expiry_le]` | metalbook | ~200 | `create_series`, `mint`, `close`, sampling, `settle` |
+| `Series` | `["series", underlying, kind, strike_le, expiry_le, cap_le, multiplier_le]` | metalbook | ~200 | `create_series`, `mint`, `close`, sampling, `settle` |
 | Long mint | `["long", series]` | SPL Token | 82 | mint authority = series PDA |
 | Collateral vault | ATA(series PDA, USDC) | SPL Token | 165 | token CPIs |
 | `Writer` | `["writer", series, owner]` | metalbook | ~80 | `mint`, `close`, `claim_writer` |
@@ -97,7 +100,9 @@ struct Series {
     long_mint: Address, vault: Address,
     total_written: u64, total_redeemed: u64,
     // settlement accumulator (same rules as varswap sampling)
-    sample_sum: u128, samples: u16, last_sample_time: i64,
+    sample_sum: u128, filled_slots: u32,   // bitmap of the 30 window slots (4.2)
+    next_print: [i64; 5], next_print_px: [u64; 5],   // k smallest publish_times > window_end
+    fallback_time: i64, fallback_px: u64,            // largest publish_time <= expiry seen
     settlement: SettlementPrice,
     mark_vol: Fixed, mark_vol_time: i64,   // keeper-set, display and quoting only
 }
@@ -136,8 +141,13 @@ MatchBook: optional `create_market` with the long mint as base, done off-chain b
   (series, writer); collateral computed on-chain with directed rounding; `close` burns from an
   account owned by the writer and cannot exceed `writer.written`.
 - `sample_settlement`: price update owned by the Pyth receiver, `Full`, `feed_id` equals the
-  underlying's feed in `Config`, `publish_time` inside the settlement window, strictly after
-  `last_sample_time` plus the minimum spacing, confidence within bound.
+  underlying's feed in `Config`, confidence within bound, and the print fits one of three
+  slots: a window slot `i` (fixed `t_i = window_start + i × 60 s`, `publish_time` in
+  `[t_i, t_i + tol]`, `tol` 5 to 10 s, slot not yet filled); a next-print candidate
+  (`publish_time > window_end`, replacing the largest stored candidate if smaller); or the
+  fallback candidate (`publish_time <= expiry`, replacing it if later). The first call after
+  `expiry` moves the series from `Active` to `Expired`; `mint` and `close` also check the
+  clock, so the transition being lazy never lets a mint through after expiry.
 - `settle`: `now >= window_end` and the rules of 4.2/4.3; idempotent (second call fails).
 - `redeem` / `claim_writer`: series `Settled`; burn from the holder's account; destination
   owned by the signer; writer claims once.
@@ -155,26 +165,36 @@ A cash-settled call has unbounded payoff, so "fully collateralized" needs a boun
 - (c) Partial collateral with liquidation: out of v1 scope.
 
 **Recommended: (a).** Puts are naturally bounded by `K`. The UI presents a capped call as what
-it is. Cap per series on a grid (for example `cap = 2 × K`).
+it is. Cap per series on a grid of `K × (1 + x%)` (for example 10%, 25%, 50%): a cap of `2K` would
+make a writer post about one spot price of collateral per ounce, while a tighter cap is
+cheaper and plainly a call spread.
 
 ### 4.2 Settlement price capture
 
 Options: single print (first update with `publish_time >= expiry`): cheap, easy to game with a
 selective push; **window average**: mean of grid-sampled prints over `[expiry − W, expiry]`
-(proposed `W = 30 min`, one sample per minute, same tolerance rule as varswap); TWAP from
-Pyth's EMA: not a defined window, opaque. **Recommended: arithmetic mean of window samples**,
-requiring at least `min_samples` (proposed 20 of 30). The settlement price is rounded to
+(proposed `W = 30 min`, one sample per minute); TWAP from Pyth's EMA: not a defined window,
+opaque. **Recommended: arithmetic mean of window samples**, requiring at least `min_samples`
+(proposed 20 of 30). Slots are fixed in time, not relative to the previous sample, so the
+first sampler cannot set the phase of later ones. Hermes serves historical updates by
+timestamp, so slots can be backfilled after the fact: good for liveness, and the reason the
+slot rule is strict. The settlement price is rounded to
 nearest cent, then payout per contract is rounded down.
 
 ### 4.3 Missing or stale oracle at expiry
 
-1. Not enough samples by `window_end + grace` (proposed 1 hour): `settle` falls back to
-   **next print**: the mean of the first `k` valid prints after `window_end` (proposed `k = 5`),
-   recorded with `SettleMethod::NextPrint`.
-2. No valid print within the hard deadline (proposed 7 days): `void_series`: writers reclaim
-   collateral and long holders get nothing? That is unfair to longs; alternative: settle at
-   the last valid pre-expiry print (`Fallback`). Open question 2, no recommendation yet beyond
-   "never void silently".
+The program cannot tell that a print was "the first" or "the last" one, so every candidate
+is monotonically improvable until finalization: anyone may replace a stored candidate with a
+better one (3.3), and `settle` finalizes only after `window_end + grace` (proposed 1 hour).
+Cascade at `settle`:
+
+1. `Window`: at least `min_samples` filled slots: mean of the window.
+2. `NextPrint`: mean of the `k = 5` smallest-`publish_time` prints after `window_end` stored.
+3. Partial window: mean of the filled slots if at least one exists.
+4. `Fallback`: the latest submitted print in `[expiry − X, expiry]` (proposed `X = 24 h`).
+5. `void_series` only if all of these are empty, after the hard deadline (proposed 7 days):
+   collateral goes back to writers, since longs have no price. Never void silently: the
+   method used is stored and logged.
 
 ### 4.4 Metals market hours
 
@@ -194,7 +214,23 @@ plus holiday closures and early ends. Prices do not update while closed. Consequ
   on-chain safety depends on a mark, so a closed market never blocks minting, closing,
   redeeming or claiming.
 
-### 4.5 Contract size and units
+### 4.5 Live series are immutable
+
+`set_calendar`, strike and cap grid changes, and oracle parameter changes in `Config` apply
+only to series created afterwards: every term a live series needs is copied into it at
+creation. Tested: change each parameter mid-life and check settlement is unchanged.
+
+### 4.6 Unredeemed longs
+
+After a redeem deadline (proposed 1 year after settlement) unclaimed USDC can be swept to a
+treasury by anyone; until then it stays locked in the series vault. Open question 7.
+
+### 4.7 Quoting during the settlement window
+
+From `window_start` part of the settlement average is known, so the maker service stops
+quoting (or widens to the known part's bounds) at `window_start`. Listed in the maker config.
+
+### 4.8 Contract size and units
 
 Multiplier per series in milli-ounces (proposed 1 oz for XAU, 50 oz for XAG at typical
 prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured grid.
@@ -228,10 +264,12 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
 
 ## 6. Open questions
 
-1. Capped calls (proposed) acceptable, or do you want physically-backed collateral?
-2. Hard-deadline outcome with no oracle: void (refund writers) or last pre-expiry print?
+1. Capped calls (proposed, the metalbook session agrees) acceptable, or physically-backed
+   collateral?
+2. The settlement cascade in 4.3 (proposed, from the metalbook session's review): OK?
 3. Expiry calendar: which days and times? Monthly only, or weeklies too?
 4. `mark_vol` from a keeper (proposed) or derived on-chain from a varswap window's realized
    variance (interesting, but realized is not implied)?
 5. Series listing permissionless within the calendar and grid (proposed) or admin-only?
 6. Use metals' lease rate as optfix carry `q` (depends on optfix question 4)?
+7. Sweep unredeemed USDC to a treasury after a deadline (proposed), or keep it locked forever?
