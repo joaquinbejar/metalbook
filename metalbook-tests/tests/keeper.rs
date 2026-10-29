@@ -249,3 +249,106 @@ fn test_keeper_decodes_only_genuine_series() {
     shifted.extend_from_slice(&data);
     assert_eq!(SeriesView::decode(&shifted[1..]).unwrap(), view);
 }
+
+/// A chain whose posts fail (receiver or RPC down) but which can still read and settle;
+/// with `lie`, each post lands and is then reported as failed (another keeper won the race).
+struct Flaky<'a> {
+    inner: Svm<'a>,
+    lie: bool,
+}
+
+impl Chain for Flaky<'_> {
+    type Address = Address;
+
+    fn now(&self) -> Result<i64, KeeperError> {
+        self.inner.now()
+    }
+
+    fn account_data(&self, account: &Address) -> Result<Option<Vec<u8>>, KeeperError> {
+        self.inner.account_data(account)
+    }
+
+    fn post(&mut self, series: &Address, feed: &[u8; 32], m: &PrintMsg) -> Result<(), KeeperError> {
+        if self.lie {
+            self.inner.post(series, feed, m)?;
+        }
+        Err(KeeperError::Chain("receiver unavailable".into()))
+    }
+
+    fn settle(&mut self, series: &Address) -> Result<(), KeeperError> {
+        self.inner.settle(series)
+    }
+}
+
+/// Codex's reproduction on #14: the adversary's 20 low slots are on chain, the tick runs at
+/// expiry + 10 + D, every post fails while settle would be allowed. The tick must fail without
+/// settling the 20-slot mean; a later working tick settles the full window.
+#[test]
+fn test_failed_posts_never_let_the_tick_settle_a_subset() {
+    let (mut env, args) = listed();
+    let series = args.series();
+    let t = tape(None);
+    let slots: Vec<(usize, i64)> = canonical_slots(&t)
+        .into_iter()
+        .map(Option::unwrap)
+        .enumerate()
+        .collect();
+    let full: Vec<i64> = slots.iter().map(|&(_, p)| p).collect();
+    let mut low = slots.clone();
+    low.sort_by_key(|&(_, p)| p);
+    env.set_time(EXPIRY + 10);
+    for &(i, _) in low.iter().take(20) {
+        let b = EXPIRY - WINDOW_S + i as i64 * SLOT_S;
+        let m = t
+            .iter()
+            .find(|m| {
+                m.prev_publish_time < b && b <= m.publish_time && m.publish_time <= b + TOLERANCE_S
+            })
+            .unwrap();
+        env.post(&series, m.price, m.publish_time, m.prev_publish_time)
+            .unwrap();
+    }
+    env.set_time(EXPIRY + 10 + D);
+    let source = TapeSource::new(FEED_XAU, t);
+    let r = Keeper.tick(
+        &mut Flaky {
+            inner: Svm(&mut env),
+            lie: false,
+        },
+        &source,
+        &series,
+    );
+    assert!(matches!(r, Err(KeeperError::Chain(_))), "{r:?}");
+    let v = read_settlement(&env, &series);
+    assert_eq!(
+        (v.filled_slots.count_ones(), v.method),
+        (20, 255),
+        "not settled"
+    );
+    // The receiver is back: the next tick completes the window and settles the full mean.
+    let r = Keeper.tick(&mut Svm(&mut env), &source, &series).unwrap();
+    assert!(r.settled && r.slots == 10, "{r:?}");
+    let v = read_settlement(&env, &series);
+    assert_eq!((v.method, v.samples, v.price), (0, 30, mean_atoms(&full)));
+}
+
+/// A post reported as failed whose candidate is on chain anyway is a lost race, not an error.
+#[test]
+fn test_lost_races_are_benign() {
+    let (mut env, args) = listed();
+    let series = args.series();
+    let source = TapeSource::new(FEED_XAU, tape(None));
+    env.set_time(EXPIRY + 60);
+    let r = Keeper
+        .tick(
+            &mut Flaky {
+                inner: Svm(&mut env),
+                lie: true,
+            },
+            &source,
+            &series,
+        )
+        .unwrap();
+    assert!(r.settled && r.slots == 0, "{r:?}");
+    assert_eq!(read_settlement(&env, &series).samples, 30);
+}

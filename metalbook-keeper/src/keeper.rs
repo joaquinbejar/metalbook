@@ -29,8 +29,9 @@ impl Keeper {
     ///
     /// # Errors
     ///
-    /// Source, chain and decoding errors. A rejected post (another keeper posted the same
-    /// print first) is not an error: the series is re-read before each step.
+    /// Source, chain and decoding errors. A failed post is benign only if the series, re-read
+    /// right after, already holds the intended candidate (another keeper posted it first);
+    /// otherwise the tick returns the error **without settling**.
     pub fn tick<C: Chain, S: PriceSource>(
         &self,
         chain: &mut C,
@@ -66,9 +67,9 @@ impl Keeper {
             if let Some(m) =
                 source.canonical_at(&feed, boundary, i64::from(p.slot_tolerance_s()), now)?
             {
-                report.slots = report
-                    .slots
-                    .saturating_add(u32::from(post(chain, series, &feed, &m)));
+                if post(chain, series, &feed, &m, Intent::Slot(i))? {
+                    report.slots = report.slots.saturating_add(1);
+                }
             }
         }
 
@@ -89,10 +90,9 @@ impl Keeper {
             let Some(m) = source.next_after(&feed, last, now)? else {
                 break;
             };
-            if !post(chain, series, &feed, &m) {
-                break;
+            if post(chain, series, &feed, &m, Intent::Link(m.publish_time))? {
+                report.links = report.links.saturating_add(1);
             }
-            report.links = report.links.saturating_add(1);
             view = read(chain, series)?;
         }
 
@@ -103,7 +103,7 @@ impl Keeper {
             .ok_or(KeeperError::Config("lookback overflow"))?;
         if let Some(m) = source.latest_at_or_before(&feed, view.expiry.min(now), earliest, now)? {
             if m.publish_time > view.candidates.parts().fallback_time {
-                report.fallback = post(chain, series, &feed, &m);
+                report.fallback = post(chain, series, &feed, &m, Intent::Fallback(m.publish_time))?;
             }
         }
 
@@ -127,7 +127,48 @@ fn read<C: Chain>(chain: &C, series: &C::Address) -> Result<SeriesView, KeeperEr
     SeriesView::decode(&data)
 }
 
-/// Posts `m`; a rejection (already stored by someone else, or not usable) is not an error.
-fn post<C: Chain>(chain: &mut C, series: &C::Address, feed: &[u8; 32], m: &PrintMsg) -> bool {
-    chain.post(series, feed, m).is_ok()
+/// The candidate a post is meant to store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Intent {
+    /// Window slot `i`.
+    Slot(u32),
+    /// The chain link with this publish time.
+    Link(i64),
+    /// A fallback at least this late.
+    Fallback(i64),
+}
+
+/// Posts `m`. Returns `true` if this post stored it, `false` if the post failed but the
+/// intended candidate is on chain anyway (another keeper won the race).
+///
+/// Any other failure (receiver, RPC, sample rejected with the candidate still missing) is an
+/// error: the tick stops before `settle`, so a failed post can never let a subset settle that
+/// the keeper knew how to complete (codex, #14).
+fn post<C: Chain>(
+    chain: &mut C,
+    series: &C::Address,
+    feed: &[u8; 32],
+    m: &PrintMsg,
+    intent: Intent,
+) -> Result<bool, KeeperError> {
+    let Err(error) = chain.post(series, feed, m) else {
+        return Ok(true);
+    };
+    let parts = read(chain, series)?.candidates.parts();
+    let stored = match intent {
+        Intent::Slot(i) => parts.filled_slots.checked_shr(i).unwrap_or(0) & 1 == 1,
+        Intent::Link(t) => parts
+            .next_times
+            .iter()
+            .take(usize::from(parts.next_len))
+            .any(|&x| x == t),
+        Intent::Fallback(t) => parts.fallback_time >= t,
+    };
+    if stored {
+        Ok(false)
+    } else {
+        Err(KeeperError::Chain(format!(
+            "post of {intent:?} failed and the candidate is not on chain: {error}"
+        )))
+    }
 }

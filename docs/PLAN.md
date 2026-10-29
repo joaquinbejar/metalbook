@@ -532,7 +532,10 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    terms and candidates with `metalbook-core` (so keeper and program apply the same rules),
    posts the canonical print of every empty window slot, every missing next-print link in
    order, and the latest fallback if it is later than the stored one, then settles as soon as
-   the cascade allows. Prices come from a `PriceSource` trait (canonical print of a boundary,
+   the cascade allows. A failed post is benign only if the series, re-read right after,
+   already holds the intended candidate (a lost race); any other failure ends the tick with
+   an error and **without settling** (codex, #14: otherwise a receiver or RPC outage would let
+   the keeper settle a subset it knew how to complete). Prices come from a `PriceSource` trait (canonical print of a boundary,
    next strictly advancing print, latest first-of-second print; `TapeSource` replays a tape)
    and transactions from a `Chain` trait. The Hermes API key is read only from
    `METALBOOK_HERMES_API_KEY` (`HermesConfig::from_env`), never from a file, and `Debug`
@@ -545,7 +548,9 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    with synthetic tapes: a keeper alone settles at the full-window mean; against an adversary
    who posted the 20 lowest canonical slots, one keeper tick within `D` posts the other 10 and
    settles at the full-window mean; with a 25-minute halt over the window it settles on the
-   next-print chain from `expiry + D`; ticks are idempotent. Run `tick` more often than `D`.
+   next-print chain from `expiry + D`; ticks are idempotent; with the adversary's 20 slots on
+   chain and every post failing, the tick errors and does not settle, and the next working
+   tick settles the full window; a post reported failed whose candidate landed is benign. Run `tick` more often than `D`.
 
 ## Verified facts (checked 2026-10-28)
 
