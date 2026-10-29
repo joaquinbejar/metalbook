@@ -996,6 +996,30 @@ mod tests {
         assert_eq!(d(state(0, 0, false, 0), hard + 600), Decision::Void);
     }
 
+    /// Codex's counterexample on #9, kept as a regression that documents the honest-keeper
+    /// assumption: the fallback price depends on which valid print was posted. With only the
+    /// older print (expiry − 3000 at 1000) the series settles at 1_000_000 atoms; with only
+    /// the later one (expiry − 2000 at 2000) at 2_000_000. Both prints are valid; nothing but a
+    /// keeper posting the later one within `D` prevents the first outcome.
+    #[test]
+    fn test_fallback_outcome_depends_on_what_was_posted() {
+        let p = params();
+        let hard = EXPIRY + 604_800;
+        let settle_with = |px: u64, publish: i64| {
+            let mut s = SettlementState::default();
+            s.add_print(&p, e(), print(px, publish, publish - 1), hard)
+                .unwrap();
+            s.decide(&p, e(), hard + 600).unwrap()
+        };
+        let fallback = |atoms: u64| Decision::Settle {
+            method: SettleMethod::Fallback,
+            price: StrikeUsd::new(atoms),
+            samples: 1,
+        };
+        assert_eq!(settle_with(1_000, EXPIRY - 3_000), fallback(1_000_000));
+        assert_eq!(settle_with(2_000, EXPIRY - 2_000), fallback(2_000_000));
+    }
+
     #[test]
     fn test_improvements_during_d_replace_and_restart_the_delay() {
         let p = params();
