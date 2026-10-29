@@ -34,8 +34,8 @@ quotebook-program:
 		if [ $$status -ne 0 ]; then cat target/build-quotebook.log; echo "quotebook-program: build failed ($$status)"; exit $$status; fi
 	@sh scripts/check-sbf-log.sh target/build-quotebook.log
 
-# Failing controls for `program`: the log check must reject a frame-overflow line, and a
-# failing cargo-build-sbf (an unknown sBPF arch) must make `make program` fail.
+# Failing controls for `program`: the log check must reject a frame overflow in both wordings,
+# and a failing cargo-build-sbf (an unknown sBPF arch) must make `make program` fail.
 .PHONY: program-control
 program-control:
 	@mkdir -p target
@@ -43,6 +43,10 @@ program-control:
 		> target/sbf-control.log
 	@if sh scripts/check-sbf-log.sh target/sbf-control.log > /dev/null; then \
 		echo "program-control: the log check accepted a frame overflow"; exit 1; fi
+	@printf '%s\n' 'Error: Function _ZN4main Stack offset of 4160 exceeded max offset of 4096 by 64 bytes' \
+		> target/sbf-control.log
+	@if sh scripts/check-sbf-log.sh target/sbf-control.log > /dev/null; then \
+		echo "program-control: the log check accepted the older wording"; exit 1; fi
 	@if $(MAKE) --no-print-directory program SBF_ARCH=no-such-arch > /dev/null 2>&1; then \
 		echo "program-control: make program succeeded with a failing cargo-build-sbf"; exit 1; fi
 	@echo "program-control: a frame overflow and a failing cargo-build-sbf both fail make program"
