@@ -97,6 +97,9 @@ pub mod code {
     pub const SERIES_NOT_SETTLED: u32 = 115;
     pub const INSUFFICIENT_LONG_TOKENS: u32 = 118;
     pub const ALREADY_CLAIMED: u32 = 144;
+    pub const SERIES_NOT_EMPTY: u32 = 145;
+    pub const INVALID_RENT_PAYER: u32 = 146;
+    pub const POSITION_NOT_CLAIMED: u32 = 147;
 }
 
 pub const USD: u64 = 1_000_000;
@@ -136,7 +139,6 @@ pub struct Params {
     pub challenge_delay_s: u32,
     pub fallback_lookback_s: u32,
     pub hard_deadline_s: u32,
-    pub redeem_deadline_s: u32,
 }
 
 impl Params {
@@ -158,7 +160,6 @@ impl Params {
             challenge_delay_s: D as u32,
             fallback_lookback_s: LOOKBACK_S as u32,
             hard_deadline_s: HARD_S as u32,
-            redeem_deadline_s: 31_536_000,
         }
     }
 
@@ -188,11 +189,10 @@ impl Params {
             self.challenge_delay_s,
             self.fallback_lookback_s,
             self.hard_deadline_s,
-            self.redeem_deadline_s,
         ] {
             d.extend_from_slice(&v.to_le_bytes());
         }
-        assert_eq!(d.len(), 165);
+        assert_eq!(d.len(), 161);
         d
     }
 }
@@ -664,6 +664,32 @@ impl Env {
         }
     }
 
+    /// `close_series` (tag 10), with the rent payer's associated USDC account.
+    pub fn ix_close_series(&self, args: SeriesArgs, rent_payer: &Address) -> Instruction {
+        let series = args.series();
+        Instruction {
+            program_id: PROGRAM_ID,
+            accounts: vec![
+                meta(series, false, true),
+                meta(ata(&series, &self.usdc), false, true),
+                meta(*rent_payer, false, true),
+                meta(ata(rent_payer, &self.usdc), false, true),
+                meta(self.usdc, false, false),
+                meta(TOKEN_PROGRAM, false, false),
+            ],
+            data: vec![10],
+        }
+    }
+
+    /// `close_position` (tag 11).
+    pub fn ix_close_position(&self, position: &Address, owner: &Address) -> Instruction {
+        Instruction {
+            program_id: PROGRAM_ID,
+            accounts: vec![meta(*position, false, true), meta(*owner, false, true)],
+            data: vec![11],
+        }
+    }
+
     /// Fills the whole window of `args` with canonical prints at the raw mantissas `prices`
     /// (one per slot, the feed and exponent of the underlying) and settles at expiry.
     pub fn settle_with_window(&mut self, args: SeriesArgs, prices: &[i64; 30]) {
@@ -729,7 +755,7 @@ pub struct SeriesView {
 
 pub fn read_series(env: &Env, series: &Address) -> SeriesView {
     let d = env.account(series).data;
-    assert_eq!(d.len(), 472);
+    assert_eq!(d.len(), 504);
     let u = |o: usize| u64::from_le_bytes(d[o..o + 8].try_into().unwrap());
     SeriesView {
         state: d[4],
@@ -827,7 +853,7 @@ pub struct SettlementView {
 
 pub fn read_settlement(env: &Env, series: &Address) -> SettlementView {
     let d = env.account(series).data;
-    assert_eq!(d.len(), 472);
+    assert_eq!(d.len(), 504);
     let u64_at = |o: usize| u64::from_le_bytes(d[o..o + 8].try_into().unwrap());
     SettlementView {
         state: d[4],

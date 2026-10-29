@@ -231,18 +231,23 @@ fn test_rounding_dust_goes_to_the_writer() {
 }
 
 #[test]
-fn test_void_returns_all_collateral_to_writers_and_longs_get_nothing() {
+fn test_void_returns_all_collateral_to_writers_and_longs_burn_for_nothing() {
     let mut env = Env::new();
     let args = SeriesArgs::xau_put(4_000);
     let x = open_positions(&mut env, args);
     let series = args.series();
     env.set_time(EXPIRY + HARD_S + D);
     env.settle(&series).unwrap();
-    expect_code(
-        env.send(&[env.ix_redeem(&x.h1.pubkey(), args, 1)], &[&x.h1]),
-        code::SERIES_NOT_SETTLED,
-    );
+    // Long tokens can be burned for nothing (so the series can later be closed).
     let usdc = env.usdc;
+    let h1_usdc = env.token_balance(&ata(&x.h1.pubkey(), &usdc));
+    env.send(&[env.ix_redeem(&x.h1.pubkey(), args, 2)], &[&x.h1])
+        .unwrap();
+    assert_eq!(env.token_balance(&ata(&x.h1.pubkey(), &usdc)), h1_usdc);
+    assert_eq!(
+        env.token_balance(&ata(&x.h1.pubkey(), &args.long_mint())),
+        0
+    );
     let a0 = env.token_balance(&ata(&x.a.pubkey(), &usdc));
     let b0 = env.token_balance(&ata(&x.b.pubkey(), &usdc));
     env.send(&[env.ix_claim(&x.a.pubkey(), args)], &[&x.a])

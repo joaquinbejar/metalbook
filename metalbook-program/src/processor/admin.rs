@@ -15,12 +15,11 @@ use crate::validate;
 pub const MAX_CAP_BPS: u16 = 60_000;
 
 /// Config parameters the admin sets, as encoded after the tag of `init_config` and
-/// `set_config`, all little endian (165 bytes): `min_listing_s: u32`, `strike_tick: [u64; 2]`,
+/// `set_config`, all little endian (161 bytes): `min_listing_s: u32`, `strike_tick: [u64; 2]`,
 /// `multiplier: [u32; 2]`, `cap_bps: [u16; 4]`, `receiver_program: [u8; 32]`,
 /// `feed_id: [[u8; 32]; 2]`, `expo: [i8; 2]`, `max_conf_bps: u16`, `slot_tolerance_s: u16`,
 /// `min_samples: u16`, `k_next_print: u8`, `window_s: u32`, `slot_s: u32`,
-/// `challenge_delay_s: u32`, `fallback_lookback_s: u32`, `hard_deadline_s: u32`,
-/// `redeem_deadline_s: u32`. Index 0 of the per-underlying arrays is XAU, 1 is XAG.
+/// `challenge_delay_s: u32`, `fallback_lookback_s: u32`, `hard_deadline_s: u32`. Index 0 of the per-underlying arrays is XAU, 1 is XAG.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Params {
     min_listing_s: u32,
@@ -39,7 +38,6 @@ struct Params {
     challenge_delay_s: u32,
     fallback_lookback_s: u32,
     hard_deadline_s: u32,
-    redeem_deadline_s: u32,
 }
 
 impl Params {
@@ -61,7 +59,6 @@ impl Params {
             challenge_delay_s: r.u32()?,
             fallback_lookback_s: r.u32()?,
             hard_deadline_s: r.u32()?,
-            redeem_deadline_s: r.u32()?,
         };
         p.validate()?;
         Ok(p)
@@ -69,7 +66,7 @@ impl Params {
 
     /// Grids as in milestone 2; oracle terms through `OracleParams::try_new` for each
     /// underlying's exponent (so every series copies terms that are already valid); a
-    /// confidence bound in `1..=10_000` bps; non-zero receiver, feed ids and redeem deadline.
+    /// confidence bound in `1..=10_000` bps; non-zero receiver and feed ids.
     fn validate(&self) -> Result<(), MetalbookError> {
         let ticks_ok = self.strike_tick.iter().all(|&t| t > 0);
         let mults_ok = self.multiplier.iter().all(|&m| m > 0);
@@ -78,8 +75,7 @@ impl Params {
         let oracle_ok = self.expo.iter().all(|&expo| self.oracle(expo).is_ok())
             && (1..=10_000).contains(&self.max_conf_bps)
             && self.receiver_program != [0; 32]
-            && self.feed_id.iter().all(|f| f != &[0; 32])
-            && self.redeem_deadline_s > 0;
+            && self.feed_id.iter().all(|f| f != &[0; 32]);
         if ticks_ok && mults_ok && caps_ok && oracle_ok {
             Ok(())
         } else {
@@ -118,12 +114,11 @@ impl Params {
         config.challenge_delay_s = self.challenge_delay_s;
         config.fallback_lookback_s = self.fallback_lookback_s;
         config.hard_deadline_s = self.hard_deadline_s;
-        config.redeem_deadline_s = self.redeem_deadline_s;
     }
 }
 
 /// `init_config`. Accounts: `[admin (signer, writable), config (writable), program_data,
-/// usdc_mint, system_program]`. Data: the config parameters (165 bytes, layout on `Params`
+/// usdc_mint, system_program]`. Data: the config parameters (161 bytes, layout on `Params`
 /// in this module's source).
 ///
 /// Only the program's upgrade authority may initialize, so nobody can front-run the

@@ -20,8 +20,9 @@ use crate::validate;
 /// token_program]`. Data: `contracts: u64`.
 ///
 /// Burns `contracts` long tokens from the holder's own account and pays
-/// `contracts × payout` USDC from the vault to the holder's own USDC account. Only on a
-/// `Settled` series: after a void the long tokens are worth nothing.
+/// `contracts × payout` USDC from the vault to the holder's own USDC account. On a `Settled`
+/// series, and on a `Voided` one where the payout is zero: burning worthless long tokens lets
+/// the series be closed (`docs/PLAN.md` 4.6).
 ///
 /// # Errors
 ///

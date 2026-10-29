@@ -333,13 +333,25 @@ are unchanged.
 **Decided (Joaquin, 2026-10-29): claimable forever.** There is no deadline and no sweep:
 `redeem` and `claim_writer` stay open indefinitely, and no instruction ever moves USDC to
 anyone but the holder or writer it is owed to. Once nothing is owed, anyone may close the
-accounts and return their rent to whoever paid it (to be implemented after milestone 4):
+accounts and return their rent to whoever paid it (implemented after milestone 4: tags 10
+and 11, `metalbook-program/src/processor/close.rs`):
 
-- the series account and its USDC vault, when the series is `Settled` or `Voided`, every
-  writer position has claimed (`writers_unclaimed == 0`), the vault owes 0 and the vault's
-  token balance is 0; rent goes to the `create_series` payer, which the series must
-  therefore record;
-- a writer position, once claimed (or with nothing written); rent goes to the writer.
+- `close_series`: the series account and its USDC vault, when the series is `Settled` or
+  `Voided` and its ledger owes nothing: every long token redeemed (after a void too, for
+  zero, so `redeem` accepts a voided series), every writer position claimed, owed vault 0.
+  Owed amounts come from the ledger, never from the token balance. Any balance the vault
+  still holds was never owed to anyone (a donation): it goes to the payer's USDC account
+  first, so a one-atom transfer cannot block the close. Rent goes to the `create_series`
+  payer, recorded in the series (layout version 3, which also drops `redeem_deadline_s`).
+- `close_position`: a writer position, once claimed (or with nothing written); rent goes to
+  the writer. It does not read the series, so it works after `close_series`.
+
+Tests (`metalbook-tests/tests/close.rs`, 8 LiteSVM tests): rent returned exactly, a one-atom
+donation goes to the payer, close rejected with one unredeemed long, with an unclaimed writer
+and before settlement, a voided series closing once its longs burn for zero, forged and
+wrong payer, payer USDC account, vault, series, mint and program, read-only accounts, and
+`close_position` before and after its claim, with a wrong rent destination and forged
+positions.
 
 The long mint cannot be closed: SPL Token (unlike Token-2022's mint close authority) has no
 instruction to close a mint, so its rent (about 0.0015 SOL) stays locked. Out-of-the-money
@@ -459,8 +471,8 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
 
    Delivered (M4): `redeem` (tag 8; `[holder, series, holder_long, holder_usdc, vault,
    usdc_mint, long_mint, token_program]`, data `contracts: u64`) burns the holder's own long
-   tokens and pays `n × payout` to the holder's own USDC account, only on a `Settled` series
-   (after a void long tokens are worth nothing). `claim_writer` (tag 9; `[writer, series,
+   tokens and pays `n × payout` to the holder's own USDC account, on a `Settled` series (and,
+   since the close-when-empty item, on a `Voided` one for zero, see 4.6). `claim_writer` (tag 9; `[writer, series,
    position, writer_usdc, vault, usdc_mint, token_program]`) pays `written × (max_payout −
    payout)` once per position (`AlreadyClaimed`, 144), on a `Settled` or `Voided` series, so
    a void returns every writer's whole collateral. State is written before each CPI; a zero

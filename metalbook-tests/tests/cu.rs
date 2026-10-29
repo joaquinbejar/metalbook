@@ -138,6 +138,22 @@ fn measure() -> Vec<(&'static str, &'static str, u64)> {
         env.send(&[ix], &[&mint_w]).unwrap(),
     ));
 
+    let position = position_address(&series, &mint_w.pubkey());
+    let ix = env.ix_close_position(&position, &mint_w.pubkey());
+    rows.push((
+        "close_position",
+        "claimed position, rent to the writer",
+        env.send(&[ix], &[&admin]).unwrap(),
+    ));
+    let usdc = env.usdc;
+    env.token_account(&usdc, &payer.pubkey());
+    let ix = env.ix_close_series(call, &payer.pubkey());
+    rows.push((
+        "close_series",
+        "vault and series closed, rent to the payer",
+        env.send(&[ix], &[&admin]).unwrap(),
+    ));
+
     // Void: the put series, nothing posted, after the hard deadline plus D.
     env.set_time(EXPIRY + HARD_S + D);
     let ix = env.ix_settle(&put.series());

@@ -55,6 +55,10 @@ pub enum Instruction {
     Redeem = 8,
     /// [`processor::claims::claim_writer`].
     ClaimWriter = 9,
+    /// [`processor::close::close_series`].
+    CloseSeries = 10,
+    /// [`processor::close::close_position`].
+    ClosePosition = 11,
 }
 
 impl TryFrom<u8> for Instruction {
@@ -72,6 +76,8 @@ impl TryFrom<u8> for Instruction {
             7 => Ok(Self::Settle),
             8 => Ok(Self::Redeem),
             9 => Ok(Self::ClaimWriter),
+            10 => Ok(Self::CloseSeries),
+            11 => Ok(Self::ClosePosition),
             _ => Err(MetalbookError::InvalidInstruction),
         }
     }
@@ -103,5 +109,7 @@ pub fn process_instruction(
         Instruction::Settle => processor::settlement::settle(program_id, accounts, rest),
         Instruction::Redeem => processor::claims::redeem(program_id, accounts, rest),
         Instruction::ClaimWriter => processor::claims::claim_writer(program_id, accounts, rest),
+        Instruction::CloseSeries => processor::close::close_series(program_id, accounts, rest),
+        Instruction::ClosePosition => processor::close::close_position(program_id, accounts, rest),
     }
 }

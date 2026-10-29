@@ -103,6 +103,13 @@ pub enum MetalbookError {
     InvalidPrint = 143,
     /// The writer position has already claimed its residual.
     AlreadyClaimed = 144,
+    /// The series cannot be closed: long tokens or writer claims are outstanding, or the
+    /// vault still owes USDC.
+    SeriesNotEmpty = 145,
+    /// The rent destination is not the account that paid the rent.
+    InvalidRentPayer = 146,
+    /// The writer position cannot be closed before it has claimed.
+    PositionNotClaimed = 147,
 }
 
 impl From<MetalbookError> for ProgramError {
