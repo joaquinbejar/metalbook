@@ -103,7 +103,7 @@ struct Series {
     sample_sum: u128, filled_slots: u32,   // bitmap of the 30 window slots (4.2)
     next_print: [i64; 5], next_print_px: [u64; 5],   // k smallest publish_times > window_end
     fallback_time: i64, fallback_px: u64,            // largest publish_time <= expiry seen
-    window_changed: i64, next_print_changed: i64, fallback_changed: i64, // challenge delay D (4.3)
+    window_changed: i64, fallback_changed: i64, // challenge delay D (4.3); NextPrint needs none
     settlement: SettlementPrice,
     mark_vol: Fixed, mark_vol_time: i64,   // keeper-set, display and quoting only
 }
@@ -148,9 +148,9 @@ MatchBook: optional `create_market` with the long mint as base, done off-chain b
   account owned by the writer and cannot exceed `writer.written`.
 - `sample_settlement`: price update owned by the receiver program id in the series snapshot,
   `Full`, `feed_id` equals the series' snapshot feed, confidence within bound, and the print fits one of three
-  slots: a window slot `i` (fixed `t_i = window_start + i × 60 s`, `publish_time` in
-  `[t_i, t_i + tol]`, `tol` 5 to 10 s, slot not yet filled); a next-print candidate
-  (`publish_time > window_end`, replacing the largest stored candidate if smaller); or the
+  slots: a window slot `i` (fixed `t_i = window_start + i × 60 s`, canonical print per 4.2,
+  `slot_tolerance_s` 5 to 10 s, slot not yet filled); the next link of the canonical
+  NextPrint chain (4.3 step 2); or the
   fallback candidate (`expiry − X <= publish_time <= expiry`, replacing it if later). The first call after
   `expiry` moves the series from `Active` to `Expired`; `mint` and `close` also check the
   clock, so the transition being lazy never lets a mint through after expiry.
@@ -185,7 +185,10 @@ opaque. **Recommended: arithmetic mean of window samples**, requiring at least `
 (proposed 20 of 30).
 
 Each slot takes the **canonical** print for its boundary `t_i`: `prev_publish_time < t_i <=
-publish_time`, the same rule as varswap 4.1, so a pusher has no choice of price within a
+publish_time <= t_i + slot_tolerance_s`, the same rule as varswap 4.1. The upper bound
+matters: without it the first print after a halt would be canonical for every slot in the
+gap and could reach `min_samples` alone (test: a print after a 20 min gap fills at most one
+slot). Same-second prints: see varswap 4.1's milestone 2 checks, which metalbook reuses. so a pusher has no choice of price within a
 slot and late backfill from Hermes is safe. If milestone 3 cannot prove uniqueness from Pyth
 semantics, the fallback is first-write-wins with the residual selection risk quantified and
 accepted by you (codex review). Test: two valid, different prices for the same slot in both
@@ -197,7 +200,7 @@ The program cannot tell that a print was "the first" or "the last" one, so every
 is monotonically improvable until finalization: anyone may replace a stored candidate with a
 better one (3.3). Improvement needs time, so every step that can settle on a subset waits a
 challenge delay `D` (proposed 10 min) after the last change to its own candidates (one
-timestamp per kind: `window_changed`, `next_print_changed`, `fallback_changed`, so a stream
+timestamp per kind: `window_changed`, `fallback_changed` (NextPrint is canonical), so a stream
 of later fallback prints cannot delay a Window or NextPrint settle); otherwise an attacker could backfill a favorable
 subset from Hermes and call `settle` in the same transaction. Each step also has its own
 earliest settle time, so a short halt waits for the market to reopen instead of settling at
@@ -206,10 +209,10 @@ a partial or stale price:
 1. `Window`: immediately from `window_end` if all 30 slots are filled; otherwise from
    `max(window_end, window_changed) + D` with at least `min_samples` slots: mean of
    the window. (Backfilled slots can still arrive after `window_end`, see 4.2.)
-2. `NextPrint`: once `k = 5` candidates with distinct `publish_time > window_end` are
-   stored, from `next_print_changed + D`, so honest keepers can still post earlier
-   prints: their mean. A print whose `publish_time` is already stored is rejected, so one
-   print posted five times cannot fill all `k`.
+2. `NextPrint`: canonical and chained, so there is no choice and no challenge delay.
+   Candidate 1 satisfies `prev_publish_time <= window_end < publish_time`; candidate `j + 1`
+   satisfies `prev_publish_time == publish_time(candidate j)`. Once `k = 5` are stored:
+   their mean. One print cannot be stored twice, because the chain only advances.
 3. From `max(hard_deadline, last change of the candidates used) + D` only (hard deadline
    proposed 7 days after expiry): `NextPrint` with 1 to `k − 1`
    candidates (their mean), else the partial window mean if at least one slot is filled.
@@ -247,11 +250,17 @@ creation, and every instruction reads only the copy:
 struct SeriesSnapshot {
     usdc_mint: Address, token_program: Address,
     receiver_program: Address, feed_id: [u8; 32],
-    max_conf_bps: u16, slot_tolerance_s: u16, min_samples: u16, k_next_print: u8, _pad: [u8; 1],
+    max_conf_bps: u16, slot_tolerance_s: u16, min_samples: u16, k_next_print: u8,
+    expo: i8,                         // pinned Pyth exponent; a mismatch is rejected
     window_s: u32, slot_s: u32, challenge_delay_s: u32, fallback_lookback_s: u32,
     hard_deadline_s: u32, redeem_deadline_s: u32,
 }
 ```
+
+Validated at `create_series`: `slot_s` divides `window_s`, `window_s / slot_s <= 32` (u32
+bitmap), `min_samples <= slots`, `k_next_print <= 5` (array size), `slot_tolerance_s <
+slot_s`. `sample_sum` adds prices in normalized units (USDC atoms per ounce) using the pinned
+`expo`.
 
 Tested: change each `Config` field mid-life and check sampling, settlement, redeem and claim
 are unchanged.
