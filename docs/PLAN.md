@@ -317,6 +317,7 @@ whenever it is added or touched.
 | `pinocchio-system` | 0.7.0 | `0.7` |
 | `pinocchio-token` | 0.7.0 | `0.7`, see conflict below |
 | `pinocchio-associated-token-account` | 0.4.0 | `0.4`, see conflict below |
+| `optfix` | unpublished | git, pinned `rev` |
 | `litesvm-token` (dev) | 0.18.1 | `0.18` |
 | `pyth-solana-receiver-sdk` (dev only) | 2.0.0 | `2.0` |
 
@@ -325,7 +326,8 @@ whenever it is added or touched.
 `solana-account-view ^2.0` (the Pinocchio 0.11 generation), while `pinocchio` 0.12.0 depends on
 `solana-account-view` 3.0; `pinocchio-system` 0.7.0 already targets `pinocchio ^0.12`. So the
 latest stable versions of all four cannot be combined today. Options: (a) Pinocchio 0.12 with
-the few token CPIs written in-crate (`transfer_checked`, `mint_to`, `burn`, account creation),
+the token CPIs metalbook needs written in-crate (`initialize_mint2`, `mint_to`, `burn`,
+`transfer_checked`, ATA create),
 replaced by `pinocchio-token` once a 0.12-compatible release exists; (b) the whole set one
 generation back (Pinocchio 0.11, as matchbook), against the latest-stable rule; (c) wait for the
 companion releases. Proposal: (a), re-checked on crates.io at the start of the milestone.
