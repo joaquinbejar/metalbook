@@ -423,6 +423,25 @@ fn test_quote_rounding_regression_large_tick() {
     assert_eq!((q.bid, q.ask), (0, 700_000_000_000_000_000));
 }
 
+/// Codex's cases at ordinary scale (#13): a bid just below one tick, an ask just above one
+/// tick, and a maximum payout just below two ticks (the ask's ceiling). Each rounded a
+/// Decimal quotient across the tick before.
+#[test]
+fn test_quote_rounding_regressions_ordinary_scale() {
+    let tick = 7_000_000;
+    let v: Decimal = "6.9999999999999999999999999999".parse().unwrap();
+    let q = quote_atoms(&a_mark(v, Decimal::ZERO, dec!(7)), Decimal::ZERO, tick).unwrap();
+    assert_eq!((q.bid, q.ask), (0, 7_000_000), "bid side");
+    let v: Decimal = "7.0000000000000000000000000001".parse().unwrap();
+    let q = quote_atoms(&a_mark(v, Decimal::ZERO, dec!(14)), Decimal::ZERO, tick).unwrap();
+    assert_eq!((q.bid, q.ask), (7_000_000, 14_000_000), "ask side");
+    // 28 significant digits (a 29th would not fit the 96-bit mantissa and parse as 14).
+    let max: Decimal = "13.99999999999999999999999999".parse().unwrap();
+    assert!(max < dec!(14));
+    let q = quote_atoms(&a_mark(dec!(13), Decimal::ZERO, max), Decimal::ZERO, tick).unwrap();
+    assert_eq!((q.bid, q.ask), (7_000_000, 7_000_000), "cap floor");
+}
+
 /// Exact rational reference: `value = mantissa / 10^scale` USD, so in atoms
 /// `mantissa × 10^6 / 10^scale`; floor and ceiling by integer division only.
 /// A denominator too large for a `u128` exceeds every numerator here, so the quotient is 0.
