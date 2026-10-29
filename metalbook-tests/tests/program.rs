@@ -80,6 +80,27 @@ fn test_init_config_forged_program_data_is_rejected() {
 }
 
 #[test]
+fn test_init_config_program_data_without_or_with_other_authority_is_rejected() {
+    let mut env = Env::bare();
+    let admin = env.admin.insecure_clone();
+    let pd = program_data_address();
+    let ix = env.ix_init_config(&admin.pubkey(), Params::default_params());
+    // ProgramData naming a different upgrade authority.
+    let mut a = env.account(&pd);
+    a.data[13..45].copy_from_slice(Address::new_unique().as_ref());
+    env.svm.set_account(pd, a.clone()).unwrap();
+    expect_code(
+        env.send(std::slice::from_ref(&ix), &[&admin]),
+        code::NOT_AUTHORITY,
+    );
+    // ProgramData with no upgrade authority (immutable program).
+    a.data[12] = 0;
+    a.data[13..45].copy_from_slice(admin.pubkey().as_ref());
+    env.svm.set_account(pd, a).unwrap();
+    expect_code(env.send(&[ix], &[&admin]), code::NOT_AUTHORITY);
+}
+
+#[test]
 fn test_init_config_wrong_config_address_is_rejected() {
     let mut env = Env::bare();
     let admin = env.admin.insecure_clone();

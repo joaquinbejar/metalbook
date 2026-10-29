@@ -140,6 +140,12 @@ MatchBook: optional `create_market` with the long mint as base, done off-chain b
 
 ### 3.3 Security checks
 
+- `init_config`: only the program's upgrade authority. The instruction takes the program's
+  `ProgramData` account, checks that it is owned by the upgradeable loader and sits at the
+  PDA of `[program_id]` under that loader, and requires its `upgrade_authority` to be present
+  and to be the signing admin, so nobody can front-run the deployment. Negative tests with
+  forged `ProgramData`: wrong owner, wrong address, a different authority, no authority.
+  The LiteSVM harness loads the program through the upgradeable loader.
 - `create_series`: series PDA from the key; expiry present in the `Calendar` PDA for that
   underlying and in the future by at least `min_listing_time`; strike positive and on the
   configured grid; capped call: `cap > strike`; long mint PDA created with series PDA as mint
@@ -378,8 +384,12 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
   `Metal.XAG/USD` `f2fb02c32b055c805e7238d628e5e9dadef274376114eb1f012337cabe93871e`.
   Their `schedule` attribute is as summarized in 4.4.
 - They are available through the pull oracle (Hermes update, posted by the Pyth receiver as a
-  `PriceUpdateV2`). Not verified: whether sponsored push accounts exist for them on Solana,
-  and Pyth's market-hours documentation page; both checked in milestone 3.
+  `PriceUpdateV2`). Pyth's market-hours documentation page is checked in milestone 3.
+- Sponsored push feeds are not usable for settlement (varswap M2, 2026-10-29): the XAG/USD
+  push account had not updated since 2026-07-03, while XAU/USD and SOL/USD were current;
+  the XAU/USD exponent is −3. So settlement accepts any `Full`-verified `PriceUpdateV2` for
+  the series' feed id, posted by anyone (a keeper pulling from Hermes), never a fixed push
+  account; and the exponent is pinned per series (4.5), not assumed.
 - `PriceUpdateV2` layout and crate versions: see varswap's plan.
 
 ## Dependencies (latest stable on crates.io, checked 2026-10-29)
