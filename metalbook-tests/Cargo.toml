@@ -12,6 +12,7 @@ publish = false
 litesvm = { workspace = true }
 litesvm-token = { workspace = true }
 metalbook-core = { workspace = true }
+pyth-lite = { workspace = true }
 solana-account = { workspace = true }
 solana-address = { workspace = true, features = ["curve25519"] }
 solana-clock = { workspace = true }

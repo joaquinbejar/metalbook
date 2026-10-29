@@ -37,6 +37,28 @@ pub const ATA_PROGRAM: Address =
 pub const SYSTEM_PROGRAM: Address = Address::from_str_const("11111111111111111111111111111111");
 pub const UPGRADEABLE_LOADER: Address =
     Address::from_str_const("BPFLoaderUpgradeab1e11111111111111111111111");
+pub const PYTH_RECEIVER: Address =
+    Address::from_str_const("rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ");
+/// `Metal.XAU/USD` and `Metal.XAG/USD` feed ids (`docs/PLAN.md`, verified facts).
+pub const FEED_XAU: [u8; 32] = [
+    0x76, 0x5d, 0x2b, 0xa9, 0x06, 0xdb, 0xc3, 0x2c, 0xa1, 0x7c, 0xc1, 0x1f, 0x53, 0x10, 0xa8, 0x9e,
+    0x9e, 0xe1, 0xf6, 0x42, 0x05, 0x08, 0xc6, 0x38, 0x61, 0xf2, 0xf8, 0xba, 0x4e, 0xe3, 0x4b, 0xb2,
+];
+pub const FEED_XAG: [u8; 32] = [
+    0xf2, 0xfb, 0x02, 0xc3, 0x2b, 0x05, 0x5c, 0x80, 0x5e, 0x72, 0x38, 0xd6, 0x28, 0xe5, 0xe9, 0xda,
+    0xde, 0xf2, 0x74, 0x37, 0x61, 0x14, 0xeb, 0x1f, 0x01, 0x23, 0x37, 0xca, 0xbe, 0x93, 0x87, 0x1e,
+];
+/// Oracle terms of the default config: 30 slots of 60 s, tolerance 10 s, 20 samples, k = 5,
+/// D = 600 s, fallback lookback 24 h, hard deadline 7 days, max conf 1%.
+pub const WINDOW_S: i64 = 1_800;
+pub const SLOT_S: i64 = 60;
+pub const TOLERANCE_S: i64 = 10;
+pub const MIN_SAMPLES: u16 = 20;
+pub const D: i64 = 600;
+pub const LOOKBACK_S: i64 = 86_400;
+pub const HARD_S: i64 = 604_800;
+pub const EXPO_XAU: i8 = -3;
+pub const EXPO_XAG: i8 = -5;
 
 /// Program error codes (`MetalbookError`), restated.
 pub mod code {
@@ -62,6 +84,16 @@ pub mod code {
     pub const INSUFFICIENT_WRITTEN: u32 = 136;
     pub const ZERO_AMOUNT: u32 = 137;
     pub const INVALID_STRIKE: u32 = 139;
+    pub const SERIES_NOT_EXPIRED: u32 = 114;
+    pub const SERIES_ALREADY_SETTLED: u32 = 116;
+    pub const ORACLE_OWNER_MISMATCH: u32 = 119;
+    pub const ORACLE_NOT_FULLY_VERIFIED: u32 = 120;
+    pub const ORACLE_FEED_MISMATCH: u32 = 121;
+    pub const ORACLE_CONFIDENCE_TOO_WIDE: u32 = 123;
+    pub const SAMPLE_OUTSIDE_WINDOW: u32 = 124;
+    pub const SETTLEMENT_NOT_READY: u32 = 141;
+    pub const ORACLE_EXPONENT_MISMATCH: u32 = 142;
+    pub const INVALID_PRINT: u32 = 143;
 }
 
 pub const USD: u64 = 1_000_000;
@@ -89,6 +121,19 @@ pub struct Params {
     pub strike_tick: [u64; 2],
     pub multiplier: [u32; 2],
     pub cap_bps: [u16; 4],
+    pub receiver: Address,
+    pub feed_id: [[u8; 32]; 2],
+    pub expo: [i8; 2],
+    pub max_conf_bps: u16,
+    pub slot_tolerance_s: u16,
+    pub min_samples: u16,
+    pub k_next_print: u8,
+    pub window_s: u32,
+    pub slot_s: u32,
+    pub challenge_delay_s: u32,
+    pub fallback_lookback_s: u32,
+    pub hard_deadline_s: u32,
+    pub redeem_deadline_s: u32,
 }
 
 impl Params {
@@ -98,6 +143,19 @@ impl Params {
             strike_tick: [TICK_XAU, TICK_XAG],
             multiplier: [MULT_XAU, MULT_XAG],
             cap_bps: CAP_BPS,
+            receiver: PYTH_RECEIVER,
+            feed_id: [FEED_XAU, FEED_XAG],
+            expo: [EXPO_XAU, EXPO_XAG],
+            max_conf_bps: 100,
+            slot_tolerance_s: TOLERANCE_S as u16,
+            min_samples: MIN_SAMPLES,
+            k_next_print: 5,
+            window_s: WINDOW_S as u32,
+            slot_s: SLOT_S as u32,
+            challenge_delay_s: D as u32,
+            fallback_lookback_s: LOOKBACK_S as u32,
+            hard_deadline_s: HARD_S as u32,
+            redeem_deadline_s: 31_536_000,
         }
     }
 
@@ -113,6 +171,25 @@ impl Params {
         for b in self.cap_bps {
             d.extend_from_slice(&b.to_le_bytes());
         }
+        d.extend_from_slice(self.receiver.as_ref());
+        d.extend_from_slice(&self.feed_id[0]);
+        d.extend_from_slice(&self.feed_id[1]);
+        d.extend_from_slice(&[self.expo[0] as u8, self.expo[1] as u8]);
+        d.extend_from_slice(&self.max_conf_bps.to_le_bytes());
+        d.extend_from_slice(&self.slot_tolerance_s.to_le_bytes());
+        d.extend_from_slice(&self.min_samples.to_le_bytes());
+        d.push(self.k_next_print);
+        for v in [
+            self.window_s,
+            self.slot_s,
+            self.challenge_delay_s,
+            self.fallback_lookback_s,
+            self.hard_deadline_s,
+            self.redeem_deadline_s,
+        ] {
+            d.extend_from_slice(&v.to_le_bytes());
+        }
+        assert_eq!(d.len(), 165);
         d
     }
 }
@@ -490,6 +567,58 @@ impl Env {
         }
     }
 
+    pub fn ix_sample(&self, series: &Address, price_update: &Address) -> Instruction {
+        Instruction {
+            program_id: PROGRAM_ID,
+            accounts: vec![
+                meta(*series, false, true),
+                meta(*price_update, false, false),
+            ],
+            data: vec![6],
+        }
+    }
+
+    pub fn ix_settle(&self, series: &Address) -> Instruction {
+        Instruction {
+            program_id: PROGRAM_ID,
+            accounts: vec![meta(*series, false, true)],
+            data: vec![7],
+        }
+    }
+
+    /// Stores a `PriceUpdateV2` account at a fresh address and returns it.
+    pub fn price_update(&mut self, u: PriceUpdateArgs) -> Address {
+        let address = Address::new_unique();
+        let lamports = self.svm.minimum_balance_for_rent_exemption(134);
+        self.svm
+            .set_account(
+                address,
+                Account {
+                    lamports,
+                    data: u.encode(),
+                    owner: u.owner,
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .unwrap();
+        address
+    }
+
+    /// Posts a `Full` XAU print to `series` (or another kind of update with `edit`).
+    pub fn post(&mut self, series: &Address, price: i64, publish: i64, prev: i64) -> Sent {
+        let pu = self.price_update(PriceUpdateArgs::xau(price, publish, prev));
+        let ix = self.ix_sample(series, &pu);
+        let payer = self.admin.insecure_clone();
+        self.send(&[ix], &[&payer])
+    }
+
+    pub fn settle(&mut self, series: &Address) -> Sent {
+        let ix = self.ix_settle(series);
+        let payer = self.admin.insecure_clone();
+        self.send(&[ix], &[&payer])
+    }
+
     pub fn ix_mint(&self, writer: &Address, args: SeriesArgs, n: u64) -> Instruction {
         self.ix_position(4, writer, args, n)
     }
@@ -534,7 +663,7 @@ pub struct SeriesView {
 
 pub fn read_series(env: &Env, series: &Address) -> SeriesView {
     let d = env.account(series).data;
-    assert_eq!(d.len(), 216);
+    assert_eq!(d.len(), 472);
     let u = |o: usize| u64::from_le_bytes(d[o..o + 8].try_into().unwrap());
     SeriesView {
         state: d[4],
@@ -550,4 +679,88 @@ pub fn read_written(env: &Env, position: &Address) -> u64 {
     let d = env.account(position).data;
     assert_eq!(d.len(), 80);
     u64::from_le_bytes(d[72..80].try_into().unwrap())
+}
+
+/// A `PriceUpdateV2` account (pyth-solana-receiver-sdk 2.0.0 layout), restated here.
+#[derive(Debug, Clone, Copy)]
+pub struct PriceUpdateArgs {
+    pub owner: Address,
+    pub discriminator: [u8; 8],
+    /// `None` is `Full`, `Some(n)` is `Partial { num_signatures: n }`.
+    pub partial: Option<u8>,
+    pub feed_id: [u8; 32],
+    pub price: i64,
+    pub conf: u64,
+    pub exponent: i32,
+    pub publish: i64,
+    pub prev: i64,
+}
+
+impl PriceUpdateArgs {
+    pub const DISCRIMINATOR: [u8; 8] = [0x22, 0xf1, 0x23, 0x63, 0x9d, 0x7e, 0xf4, 0xcd];
+
+    /// A `Full` XAU/USD print, exponent -3, confidence 0.01% of the price.
+    pub fn xau(price: i64, publish: i64, prev: i64) -> Self {
+        Self {
+            owner: PYTH_RECEIVER,
+            discriminator: Self::DISCRIMINATOR,
+            partial: None,
+            feed_id: FEED_XAU,
+            price,
+            conf: (price.unsigned_abs() / 10_000).max(1),
+            exponent: i32::from(EXPO_XAU),
+            publish,
+            prev,
+        }
+    }
+
+    pub fn encode(&self) -> Vec<u8> {
+        let mut d = Vec::with_capacity(134);
+        d.extend_from_slice(&self.discriminator);
+        d.extend_from_slice(&[7u8; 32]); // write authority
+        match self.partial {
+            None => d.push(1),
+            Some(n) => d.extend_from_slice(&[0, n]),
+        }
+        d.extend_from_slice(&self.feed_id);
+        d.extend_from_slice(&self.price.to_le_bytes());
+        d.extend_from_slice(&self.conf.to_le_bytes());
+        d.extend_from_slice(&self.exponent.to_le_bytes());
+        d.extend_from_slice(&self.publish.to_le_bytes());
+        d.extend_from_slice(&self.prev.to_le_bytes());
+        d.extend_from_slice(&self.price.to_le_bytes()); // ema price
+        d.extend_from_slice(&self.conf.to_le_bytes()); // ema conf
+        d.extend_from_slice(&1u64.to_le_bytes()); // posted slot
+        d.resize(134, 0);
+        d
+    }
+}
+
+/// Settlement fields of a series (offsets of the version-2 layout).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SettlementView {
+    pub state: u8,
+    pub filled_slots: u32,
+    pub next_len: u8,
+    pub method: u8,
+    pub price: u64,
+    pub samples: u16,
+    pub payout: u64,
+    pub residual: u64,
+}
+
+pub fn read_settlement(env: &Env, series: &Address) -> SettlementView {
+    let d = env.account(series).data;
+    assert_eq!(d.len(), 472);
+    let u64_at = |o: usize| u64::from_le_bytes(d[o..o + 8].try_into().unwrap());
+    SettlementView {
+        state: d[4],
+        filled_slots: u32::from_le_bytes(d[328..332].try_into().unwrap()),
+        next_len: d[332],
+        method: d[333],
+        price: u64_at(456),
+        samples: u16::from_le_bytes(d[464..466].try_into().unwrap()),
+        payout: u64_at(192),
+        residual: u64_at(200),
+    }
 }

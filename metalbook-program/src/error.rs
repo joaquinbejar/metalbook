@@ -2,12 +2,13 @@
 
 use metalbook_core::CoreError;
 use pinocchio::error::ProgramError;
+use pyth_lite::PythError;
 
 /// Every error the program returns, as `ProgramError::Custom(code)`. Codes start at 100
 /// (matchbook convention) and never change; new variants are appended.
 ///
-/// Codes 119 to 125 and 127 are reserved for the oracle (milestone 3) and pricing
-/// (milestone 5) checks of `docs/PLAN.md`; nothing returns them yet.
+/// Codes 125 (`NotEnoughSamples`) and 127 (`Pricing`, milestone 5) are reserved; nothing returns
+/// them yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u32)]
 pub enum MetalbookError {
@@ -49,19 +50,19 @@ pub enum MetalbookError {
     InsufficientCollateral = 117,
     /// More long tokens than outstanding.
     InsufficientLongTokens = 118,
-    /// Reserved (oracle, milestone 3).
+    /// The price update is not owned by the series' Pyth receiver program.
     OracleOwnerMismatch = 119,
-    /// Reserved (oracle, milestone 3).
+    /// The price update is not `Full`-verified.
     OracleNotFullyVerified = 120,
-    /// Reserved (oracle, milestone 3).
+    /// The price update is for another feed.
     OracleFeedMismatch = 121,
-    /// Reserved (oracle, milestone 3).
+    /// The price update is too old (unused: settlement bounds time itself).
     OracleStale = 122,
-    /// Reserved (oracle, milestone 3).
+    /// `conf / price` above the series' bound.
     OracleConfidenceTooWide = 123,
-    /// Reserved (oracle, milestone 3).
+    /// The print qualifies as no settlement candidate (slot, chain link or fallback).
     SampleOutsideWindow = 124,
-    /// Reserved (oracle, milestone 3).
+    /// Reserved.
     NotEnoughSamples = 125,
     /// An amount does not fit its integer type.
     Overflow = 126,
@@ -93,12 +94,37 @@ pub enum MetalbookError {
     InvalidStrike = 139,
     /// The series is not active.
     SeriesNotActive = 140,
+    /// No settlement step is eligible yet: a candidate is inside its challenge delay, or the
+    /// hard deadline has not passed.
+    SettlementNotReady = 141,
+    /// The price update's exponent is not the series' pinned exponent.
+    OracleExponentMismatch = 142,
+    /// A print with a non-positive price or `prev_publish_time <= 0`.
+    InvalidPrint = 143,
 }
 
 impl From<MetalbookError> for ProgramError {
     #[cold]
     fn from(e: MetalbookError) -> Self {
         ProgramError::Custom(e as u32)
+    }
+}
+
+impl From<PythError> for MetalbookError {
+    #[cold]
+    fn from(e: PythError) -> Self {
+        match e {
+            PythError::WrongOwner => Self::OracleOwnerMismatch,
+            PythError::WrongDiscriminator
+            | PythError::Truncated
+            | PythError::UnknownVerificationLevel => Self::InvalidAccountData,
+            PythError::NotFullyVerified => Self::OracleNotFullyVerified,
+            PythError::WrongFeed => Self::OracleFeedMismatch,
+            PythError::NonPositivePrice => Self::InvalidPrint,
+            PythError::Stale => Self::OracleStale,
+            PythError::ConfidenceTooWide => Self::OracleConfidenceTooWide,
+            PythError::ArithmeticOverflow => Self::Overflow,
+        }
     }
 }
 
@@ -118,6 +144,9 @@ impl From<CoreError> for MetalbookError {
             CoreError::InsufficientWritten => Self::InsufficientWritten,
             CoreError::InsufficientLongTokens => Self::InsufficientLongTokens,
             CoreError::InvariantViolated => Self::InvariantViolated,
+            CoreError::InvalidOracleParams => Self::InvalidConfig,
+            CoreError::InvalidPrint => Self::InvalidPrint,
+            CoreError::PrintNotUsable => Self::SampleOutsideWindow,
         }
     }
 }
@@ -139,5 +168,6 @@ mod tests {
         assert_eq!(MetalbookError::Pricing as u32, 127);
         assert_eq!(MetalbookError::InvalidAccountData as u32, 128);
         assert_eq!(MetalbookError::SeriesNotActive as u32, 140);
+        assert_eq!(MetalbookError::InvalidPrint as u32, 143);
     }
 }

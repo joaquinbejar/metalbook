@@ -157,6 +157,25 @@ pub fn create_series(
         s.token_program = cfg.token_program;
         s.long_mint = long_address.to_bytes();
         s.vault = vault_address.to_bytes();
+        // Oracle snapshot (`docs/PLAN.md` 4.5): the series never reads the config again.
+        let index = usize::from(underlying_raw);
+        s.receiver_program = cfg.receiver_program;
+        s.feed_id = *cfg
+            .feed_id
+            .get(index)
+            .ok_or(MetalbookError::InvalidConfig)?;
+        s.expo = *cfg.expo.get(index).ok_or(MetalbookError::InvalidConfig)?;
+        s.k_next_print = cfg.k_next_print;
+        s.max_conf_bps = cfg.max_conf_bps;
+        s.slot_tolerance_s = cfg.slot_tolerance_s;
+        s.min_samples = cfg.min_samples;
+        s.window_s = cfg.window_s;
+        s.slot_s = cfg.slot_s;
+        s.challenge_delay_s = cfg.challenge_delay_s;
+        s.fallback_lookback_s = cfg.fallback_lookback_s;
+        s.hard_deadline_s = cfg.hard_deadline_s;
+        s.redeem_deadline_s = cfg.redeem_deadline_s;
+        s.settle_method = state::SETTLE_METHOD_NONE;
     }
 
     // Long mint: a PDA of the series, owned by the token program.

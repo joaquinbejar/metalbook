@@ -1,6 +1,6 @@
 //! `init_config`, `set_config` and `set_calendar`.
 
-use metalbook_core::Underlying;
+use metalbook_core::{CoreError, OracleParams, Underlying};
 use pinocchio::cpi::Seed;
 use pinocchio::{AccountView, Address, ProgramResult};
 use pinocchio_token::state::Mint;
@@ -15,42 +15,90 @@ use crate::validate;
 pub const MAX_CAP_BPS: u16 = 60_000;
 
 /// Config parameters the admin sets, as encoded after the tag of `init_config` and
-/// `set_config`: `min_listing_s: u32`, `strike_tick: [u64; 2]`, `multiplier: [u32; 2]`,
-/// `cap_bps: [u16; 4]`, all little endian (44 bytes).
+/// `set_config`, all little endian (165 bytes): `min_listing_s: u32`, `strike_tick: [u64; 2]`,
+/// `multiplier: [u32; 2]`, `cap_bps: [u16; 4]`, `receiver_program: [u8; 32]`,
+/// `feed_id: [[u8; 32]; 2]`, `expo: [i8; 2]`, `max_conf_bps: u16`, `slot_tolerance_s: u16`,
+/// `min_samples: u16`, `k_next_print: u8`, `window_s: u32`, `slot_s: u32`,
+/// `challenge_delay_s: u32`, `fallback_lookback_s: u32`, `hard_deadline_s: u32`,
+/// `redeem_deadline_s: u32`. Index 0 of the per-underlying arrays is XAU, 1 is XAG.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Params {
     min_listing_s: u32,
     strike_tick: [u64; 2],
     multiplier: [u32; 2],
     cap_bps: [u16; CAP_GRID_LEN],
+    receiver_program: [u8; 32],
+    feed_id: [[u8; 32]; 2],
+    expo: [i8; 2],
+    max_conf_bps: u16,
+    slot_tolerance_s: u16,
+    min_samples: u16,
+    k_next_print: u8,
+    window_s: u32,
+    slot_s: u32,
+    challenge_delay_s: u32,
+    fallback_lookback_s: u32,
+    hard_deadline_s: u32,
+    redeem_deadline_s: u32,
 }
 
 impl Params {
     fn read(r: &mut Reader) -> Result<Self, MetalbookError> {
-        let min_listing_s = r.u32()?;
-        let strike_tick = [r.u64()?, r.u64()?];
-        let multiplier = [r.u32()?, r.u32()?];
-        let cap_bps = [r.u16()?, r.u16()?, r.u16()?, r.u16()?];
         let p = Self {
-            min_listing_s,
-            strike_tick,
-            multiplier,
-            cap_bps,
+            min_listing_s: r.u32()?,
+            strike_tick: [r.u64()?, r.u64()?],
+            multiplier: [r.u32()?, r.u32()?],
+            cap_bps: [r.u16()?, r.u16()?, r.u16()?, r.u16()?],
+            receiver_program: r.bytes32()?,
+            feed_id: [r.bytes32()?, r.bytes32()?],
+            expo: [r.i8()?, r.i8()?],
+            max_conf_bps: r.u16()?,
+            slot_tolerance_s: r.u16()?,
+            min_samples: r.u16()?,
+            k_next_print: r.u8()?,
+            window_s: r.u32()?,
+            slot_s: r.u32()?,
+            challenge_delay_s: r.u32()?,
+            fallback_lookback_s: r.u32()?,
+            hard_deadline_s: r.u32()?,
+            redeem_deadline_s: r.u32()?,
         };
         p.validate()?;
         Ok(p)
     }
 
+    /// Grids as in milestone 2; oracle terms through `OracleParams::try_new` for each
+    /// underlying's exponent (so every series copies terms that are already valid); a
+    /// confidence bound in `1..=10_000` bps; non-zero receiver, feed ids and redeem deadline.
     fn validate(&self) -> Result<(), MetalbookError> {
         let ticks_ok = self.strike_tick.iter().all(|&t| t > 0);
         let mults_ok = self.multiplier.iter().all(|&m| m > 0);
         let caps_ok =
             self.cap_bps.iter().any(|&b| b > 0) && self.cap_bps.iter().all(|&b| b <= MAX_CAP_BPS);
-        if ticks_ok && mults_ok && caps_ok {
+        let oracle_ok = self.expo.iter().all(|&expo| self.oracle(expo).is_ok())
+            && (1..=10_000).contains(&self.max_conf_bps)
+            && self.receiver_program != [0; 32]
+            && self.feed_id.iter().all(|f| f != &[0; 32])
+            && self.redeem_deadline_s > 0;
+        if ticks_ok && mults_ok && caps_ok && oracle_ok {
             Ok(())
         } else {
             Err(MetalbookError::InvalidConfig)
         }
+    }
+
+    fn oracle(&self, expo: i8) -> Result<OracleParams, CoreError> {
+        OracleParams::try_new(
+            self.window_s,
+            self.slot_s,
+            self.slot_tolerance_s,
+            self.min_samples,
+            self.k_next_print,
+            self.challenge_delay_s,
+            self.fallback_lookback_s,
+            self.hard_deadline_s,
+            expo,
+        )
     }
 
     fn store(&self, config: &mut Config) {
@@ -58,12 +106,25 @@ impl Params {
         config.strike_tick = self.strike_tick;
         config.multiplier = self.multiplier;
         config.cap_bps = self.cap_bps;
+        config.receiver_program = self.receiver_program;
+        config.feed_id = self.feed_id;
+        config.expo = self.expo;
+        config.max_conf_bps = self.max_conf_bps;
+        config.slot_tolerance_s = self.slot_tolerance_s;
+        config.min_samples = self.min_samples;
+        config.k_next_print = self.k_next_print;
+        config.window_s = self.window_s;
+        config.slot_s = self.slot_s;
+        config.challenge_delay_s = self.challenge_delay_s;
+        config.fallback_lookback_s = self.fallback_lookback_s;
+        config.hard_deadline_s = self.hard_deadline_s;
+        config.redeem_deadline_s = self.redeem_deadline_s;
     }
 }
 
 /// `init_config`. Accounts: `[admin (signer, writable), config (writable), program_data,
-/// usdc_mint, system_program]`. Data: the config parameters (`min_listing_s: u32`,
-/// `strike_tick: [u64; 2]`, `multiplier: [u32; 2]`, `cap_bps: [u16; 4]`, 44 bytes).
+/// usdc_mint, system_program]`. Data: the config parameters (165 bytes, layout on `Params`
+/// in this module's source).
 ///
 /// Only the program's upgrade authority may initialize, so nobody can front-run the
 /// deployment and take the admin role.

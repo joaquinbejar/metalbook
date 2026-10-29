@@ -26,10 +26,15 @@ mod error;
 mod ledger;
 mod payoff;
 mod series;
+mod settlement;
 mod units;
 
 pub use error::CoreError;
 pub use ledger::{LedgerParts, SeriesLedger};
 pub use payoff::MILLI_OUNCES_PER_OUNCE;
 pub use series::{OptionKind, SeriesKey, SeriesState, SeriesTerms, Underlying};
+pub use settlement::{
+    to_atoms, Decision, OracleParams, Print, PrintUse, SettleMethod, SettlementParts,
+    SettlementState, MAX_EXPO, MAX_NEXT_PRINTS, MAX_SLOTS, MIN_EXPO,
+};
 pub use units::{Contracts, OuncesPerContract, StrikeUsd, UnixTimestamp, UsdcAtoms};

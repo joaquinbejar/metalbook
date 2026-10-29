@@ -82,6 +82,7 @@ pub fn mint(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -> 
     let mut ledger = s.ledger()?;
     let deposit = ledger.mint(n).map_err(MetalbookError::from)?;
     {
+        validate::owned_by(position, program_id)?;
         let position_address = Address::new_from_array(position.address().to_bytes());
         let mut bytes = position.try_borrow_mut()?;
         let w = load_position(
@@ -150,6 +151,7 @@ pub fn close(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) ->
 
     let mut ledger = s.ledger()?;
     let withdrawal = {
+        validate::owned_by(position, program_id)?;
         let position_address = Address::new_from_array(position.address().to_bytes());
         let mut bytes = position.try_borrow_mut()?;
         let w = load_position(
