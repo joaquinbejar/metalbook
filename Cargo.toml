@@ -14,6 +14,7 @@ repository = "https://github.com/joaquinbejar/metalbook"
 proptest = "1.12"
 bytemuck = { version = "1.25", default-features = false, features = ["derive", "min_const_generics"] }
 metalbook-core = { path = "metalbook-core", version = "0.1" }
+metalbook-maker = { path = "metalbook-maker" }
 # Pinocchio 0.11 generation: decided exception to the latest-stable rule (docs/PLAN.md,
 # Dependencies). pinocchio-token 0.7 and pinocchio-associated-token-account 0.4 are the
 # newest releases built on solana-account-view 2.
@@ -23,9 +24,10 @@ pinocchio-token = "0.7"
 pinocchio-associated-token-account = "0.4"
 # Unpublished sibling: varswap's pyth-lite, pinned by rev (rules/global_rules.md).
 pyth-lite = { git = "https://github.com/joaquinbejar/varswap", rev = "5cf95aa97ef01b0c4a540327f1501c8dcb7a7811" }
-# Unpublished sibling: quotebook-core, pinned by rev (quotebook main, settle merged). Bumped
-# when quotebook-sdk lands.
-quotebook-core = { git = "https://github.com/joaquinbejar/quotebook", rev = "269e3d9a5aaebc94e20c8b15616bd697acdb53c5" }
+# Unpublished siblings: quotebook-core and quotebook-sdk, pinned to the same rev (quotebook
+# main with the M5 taker SDK).
+quotebook-core = { git = "https://github.com/joaquinbejar/quotebook", rev = "578314c6ae03a3ab9ea4b045cfed60fa442ae607" }
+quotebook-sdk = { git = "https://github.com/joaquinbejar/quotebook", rev = "578314c6ae03a3ab9ea4b045cfed60fa442ae607" }
 # Off-chain only (metalbook-maker). Versions checked on crates.io on 2026-10-29.
 rust_decimal = "1.43"
 thiserror = "2.0"

@@ -505,6 +505,18 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    put and call-spread marks equal the reference legs, the spread stays within its payoff
    bounds and is monotone in spot (property test), and deep in the money it approaches the
    discounted maximum. optfix becomes one more `VanillaPricer`.
+
+   M5b (quotebook side): `metalbook-tests/tests/quotebook_demo.rs` runs the whole path in
+   LiteSVM with quotebook-sdk and quotebook-core pinned at `578314c` (quotebook's M5 taker
+   SDK; `make quotebook-program` builds its program from the same checkout). A writer mints 10
+   long tokens and acts as maker; the long mint / USDC quotebook series has one long token
+   per base lot and a 0.01 USD tick; the maker marks the put with `metalbook-maker`, asks
+   with `quote_atoms` and `quote_terms`, signs; a taker buys 2 through the ed25519 precompile
+   and `settle`, every quotebook instruction built by the SDK; the series settles from Pyth
+   prints and the taker redeems 100 USD per token; the vault empties. **Remaining for the
+   done-when:** the price comes from OptionStratLib as a stand-in `VanillaPricer` because
+   optfix has no Black-Scholes kernel yet (optfix main is at its M3, exp and ln); swapping
+   in optfix is one `VanillaPricer` implementation.
 6. **Benchmarks and docs.** *Done when* `docs/benchmarks.md` lists CU for every instruction and
    README explains the capped call and the market-hours rules.
 
@@ -553,7 +565,7 @@ whenever it is added or touched.
 | `pinocchio-associated-token-account` | 0.4.0 | `0.4`, see conflict below |
 | `optfix` | unpublished | git, pinned `rev` |
 | `pyth-lite` (varswap) | unpublished | git, `rev = 5cf95aa` |
-| `quotebook-core` | unpublished | git, `rev = 269e3d9` (bumped when quotebook-sdk lands) |
+| `quotebook-core`, `quotebook-sdk` | unpublished | git, `rev = 578314c` (quotebook M5 SDK) |
 | `rust_decimal` (maker) | 1.43.0 | `1.43` |
 | `thiserror` (maker) | 2.0.21 | `2.0` |
 | `optionstratlib` (maker, dev) | 0.23.0 | `0.23` |
