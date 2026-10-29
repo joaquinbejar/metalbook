@@ -103,7 +103,7 @@ struct Series {
     sample_sum: u128, filled_slots: u32,   // bitmap of the 30 window slots (4.2)
     next_print: [i64; 5], next_print_px: [u64; 5],   // k smallest publish_times > window_end
     fallback_time: i64, fallback_px: u64,            // largest publish_time <= expiry seen
-    last_candidate_change: i64,                      // starts the challenge delay D (4.3)
+    window_changed: i64, next_print_changed: i64, fallback_changed: i64, // challenge delay D (4.3)
     settlement: SettlementPrice,
     mark_vol: Fixed, mark_vol_time: i64,   // keeper-set, display and quoting only
 }
@@ -188,22 +188,24 @@ nearest cent, then payout per contract is rounded down.
 The program cannot tell that a print was "the first" or "the last" one, so every candidate
 is monotonically improvable until finalization: anyone may replace a stored candidate with a
 better one (3.3). Improvement needs time, so every step that can settle on a subset waits a
-challenge delay `D` (proposed 10 min) after the last change to its candidates
-(`Series.last_candidate_change: i64`); otherwise an attacker could backfill a favorable
+challenge delay `D` (proposed 10 min) after the last change to its own candidates (one
+timestamp per kind: `window_changed`, `next_print_changed`, `fallback_changed`, so a stream
+of later fallback prints cannot delay a Window or NextPrint settle); otherwise an attacker could backfill a favorable
 subset from Hermes and call `settle` in the same transaction. Each step also has its own
 earliest settle time, so a short halt waits for the market to reopen instead of settling at
 a partial or stale price:
 
 1. `Window`: immediately from `window_end` if all 30 slots are filled; otherwise from
-   `max(window_end, last_candidate_change) + D` with at least `min_samples` slots: mean of
+   `max(window_end, window_changed) + D` with at least `min_samples` slots: mean of
    the window. (Backfilled slots can still arrive after `window_end`, see 4.2.)
 2. `NextPrint`: once `k = 5` candidates with distinct `publish_time > window_end` are
-   stored, from `last_candidate_change + D`, so honest keepers can still post earlier
+   stored, from `next_print_changed + D`, so honest keepers can still post earlier
    prints: their mean. A print whose `publish_time` is already stored is rejected, so one
    print posted five times cannot fill all `k`.
-3. From the hard deadline (proposed 7 days after expiry) only: `NextPrint` with 1 to `k − 1`
+3. From `max(hard_deadline, last change of the candidates used) + D` only (hard deadline
+   proposed 7 days after expiry): `NextPrint` with 1 to `k − 1`
    candidates (their mean), else the partial window mean if at least one slot is filled.
-4. `Fallback`, from the hard deadline: the latest submitted print in `[expiry − X, expiry]`
+4. `Fallback`, from `max(hard_deadline, fallback_changed) + D`: the latest submitted print in `[expiry − X, expiry]`
    (proposed `X = 24 h`).
 5. `void_series` only if all of these are empty at the hard deadline: collateral goes back
    to writers, since longs have no price. Never void silently: the method used is stored and
