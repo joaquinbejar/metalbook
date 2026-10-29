@@ -497,3 +497,39 @@ fn test_writer_position_owner_is_checked() {
         code::INVALID_ACCOUNT_OWNER,
     );
 }
+
+#[test]
+fn test_better_candidate_during_d_replaces_the_worse_one_and_restarts_d() {
+    // Fallback: an adversary posts an older print after the hard deadline; an honest keeper
+    // posts a later one during D.
+    let (mut env, series) = setup(SeriesArgs::xau_put(4_000));
+    env.set_time(HARD + 100);
+    env.post(&series, 1_000_000, EXPIRY - 3_000, EXPIRY - 3_001)
+        .unwrap();
+    env.set_time(HARD + 100 + D - 1);
+    env.post(&series, 2_000_000, EXPIRY - 2_000, EXPIRY - 2_001)
+        .unwrap();
+    env.set_time(HARD + 100 + D);
+    expect_code(env.settle(&series), code::SETTLEMENT_NOT_READY);
+    env.set_time(HARD + 100 + 2 * D - 1);
+    env.settle(&series).unwrap();
+    let v = read_settlement(&env, &series);
+    assert_eq!((v.method, v.price), (FALLBACK, 2_000_000_000));
+
+    // Window: an adversary posts 20 favorable slots; an honest keeper adds the rest during D.
+    let (mut env, series) = setup(SeriesArgs::xau_put(4_000));
+    env.set_time(EXPIRY + 10);
+    for i in 0..20 {
+        post_slot(&mut env, &series, i, 4_400_000).unwrap();
+    }
+    env.set_time(EXPIRY + 10 + D - 1);
+    for i in 20..29 {
+        post_slot(&mut env, &series, i, 4_000_000).unwrap();
+    }
+    env.set_time(EXPIRY + 10 + D);
+    expect_code(env.settle(&series), code::SETTLEMENT_NOT_READY);
+    post_slot(&mut env, &series, 29, 4_000_000).unwrap();
+    env.settle(&series).unwrap();
+    let v = read_settlement(&env, &series);
+    assert_eq!((v.method, v.price, v.samples), (WINDOW, 4_266_666_667, 30));
+}

@@ -1,12 +1,20 @@
 //! Settlement price capture (`docs/PLAN.md` 4.2 and 4.3): canonical window slots, the
 //! canonical next-print chain, the fallback candidate, and the settlement cascade.
 //!
-//! Every candidate is defined so that whoever posts prints has no choice of price:
+//! Each candidate value is canonical, so whoever posts a print has no choice of price *for
+//! that slot, link or fallback*:
 //! - a window slot `i` takes the canonical print of its boundary `t_i`:
 //!   `prev_publish_time < t_i <= publish_time <= t_i + slot_tolerance_s`;
 //! - the next-print chain takes the canonical update that strictly advances past
 //!   `window_end`, then past each link in turn;
 //! - the fallback is the latest first-of-its-second print at or before expiry.
+//!
+//! *Which* candidates are stored when `settle` runs does depend on what was posted: an
+//! adversary alone can post a subset of the window or an older fallback and settle on it.
+//! Every candidate is therefore monotonically improvable (more slots, a longer chain, a later
+//! fallback), each improvement restarts that candidate's challenge delay `D`, and liveness
+//! and correctness assume at least one honest keeper posts the complete window or chain (or
+//! the latest fallback) within `D` (`docs/PLAN.md` 4.3, trust assumption).
 //!
 //! Prices are raw Pyth mantissas with the series' pinned exponent; they are converted to
 //! USDC atoms per ounce once, when the settlement price is fixed.
@@ -986,6 +994,76 @@ mod tests {
             Decision::Wait { until: hard + 600 }
         );
         assert_eq!(d(state(0, 0, false, 0), hard + 600), Decision::Void);
+    }
+
+    #[test]
+    fn test_improvements_during_d_replace_and_restart_the_delay() {
+        let p = params();
+        let hard = EXPIRY + 604_800;
+        // An adversary posts an older fallback after the hard deadline...
+        let mut s = SettlementState::default();
+        s.add_print(&p, e(), print(1_000, EXPIRY - 3_000, EXPIRY - 3_001), hard)
+            .unwrap();
+        // ...an honest keeper posts a later one during D: it replaces it and restarts D.
+        s.add_print(
+            &p,
+            e(),
+            print(2_000, EXPIRY - 2_000, EXPIRY - 2_001),
+            hard + 500,
+        )
+        .unwrap();
+        assert_eq!(
+            s.decide(&p, e(), hard + 600),
+            Ok(Decision::Wait {
+                until: hard + 1_100
+            })
+        );
+        assert_eq!(
+            s.decide(&p, e(), hard + 1_100),
+            Ok(Decision::Settle {
+                method: SettleMethod::Fallback,
+                price: StrikeUsd::new(2_000_000),
+                samples: 1
+            })
+        );
+        // An adversary posts 20 favorable slots; an honest keeper adds the other 10 during D.
+        let start = EXPIRY - 1_800;
+        let mut s = SettlementState::default();
+        for i in 0..20 {
+            let b = start + i * 60;
+            s.add_print(&p, e(), print(4_400_000, b + 1, b - 1), EXPIRY + 10)
+                .unwrap();
+        }
+        assert_eq!(
+            s.decide(&p, e(), EXPIRY + 609),
+            Ok(Decision::Wait {
+                until: EXPIRY + 610
+            })
+        );
+        for i in 20..29 {
+            let b = start + i * 60;
+            s.add_print(&p, e(), print(4_000_000, b + 1, b - 1), EXPIRY + 600)
+                .unwrap();
+        }
+        // 29 slots: D restarted at the last addition.
+        assert_eq!(
+            s.decide(&p, e(), EXPIRY + 610),
+            Ok(Decision::Wait {
+                until: EXPIRY + 1_200
+            })
+        );
+        let b = start + 29 * 60;
+        s.add_print(&p, e(), print(4_000_000, b + 1, b - 1), EXPIRY + 650)
+            .unwrap();
+        // Complete: settles at once, on every slot (20 × 4400 + 10 × 4000) / 30.
+        assert_eq!(
+            s.decide(&p, e(), EXPIRY + 650),
+            Ok(Decision::Settle {
+                method: SettleMethod::Window,
+                price: StrikeUsd::new(4_266_666_667),
+                samples: 30
+            })
+        );
     }
 
     #[test]

@@ -257,6 +257,20 @@ a partial or stale price:
 5. Void, from `hard_deadline + D`, only if all of these are empty: collateral goes back to
    writers, since longs have no price. Never void silently: the method used is stored.
 
+Trust assumption (codex, on #9). Canonicity removes the choice of price for each slot, link
+and fallback, but not the choice of *which* candidates exist when `settle` runs: with no one
+else posting, an adversary can post a favorable subset of the window (at least
+`min_samples`, or any subset after the hard deadline), a partial chain, or an older fallback
+(say `expiry − 3000` at 1000 while `expiry − 2000` at 2000 exists), wait `D` and settle on
+it. Every candidate is monotonically improvable and every improvement restarts that
+candidate's `D` (more slots for the window, the next link for the chain, a later print for
+the fallback), so the protocol is correct under this assumption: **at least one honest keeper
+posts the complete window, or the complete chain, or the latest fallback, within `D` of any
+change**. The default honest keeper is the protocol-run keeper of milestone 7, which posts
+every canonical print from Hermes as soon as it exists; anyone else may run one. Tested:
+a later fallback and extra window slots posted during `D` replace the worse candidate and
+restart `D`.
+
 Priority (codex, after #3): a candidate that exists but is still inside its delay is
 pending, not absent, so `settle` returns `SettlementNotReady` instead of falling through to a
 lower step. The fallback is the latest *first-of-its-second* print (`prev_publish_time <

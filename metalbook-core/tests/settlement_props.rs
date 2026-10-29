@@ -14,7 +14,11 @@
 //!   reference with the same prices, the chain is a prefix of the reference chain, and the
 //!   fallback is never later than the reference fallback.
 //!
-//! So whoever posts prints can delay a candidate (by not posting) but never choose its price.
+//! This proves that each stored value is canonical (no choice of price for a given slot, link
+//! or fallback). It does not prove that the settlement price is independent of which prints
+//! were posted: an adversary alone can post a subset, or an older fallback, and settle on it
+//! after `D`. That case relies on the honest-keeper assumption of `docs/PLAN.md` 4.3, and on
+//! improvements restarting `D` (tested in the crate's unit tests and in LiteSVM).
 
 #![allow(
     clippy::unwrap_used,
