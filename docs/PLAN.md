@@ -662,7 +662,7 @@ whenever it is added or touched.
 | `serde_json` (keeper, cli) | 1.0.154 | `1.0` |
 | `base64` (keeper; cli dev) | 0.23.1 | `0.23` |
 | `clap` (cli) | 4.6.7 | `4.6` |
-| `solana-rpc-client`, `solana-rpc-client-api` (cli) | 4.4.0 (4.3.2 used) | `4.3`: newest that resolves with the LiteSVM pins, cross-repo decision |
+| `solana-rpc-client`, `solana-rpc-client-api` (cli) | 4.4.0 (4.3.2 used) | `~4.3`: newest that resolves with the LiteSVM pins, cross-repo decision; tilde so `cargo update` stays on 4.3 |
 | `solana-commitment-config` (cli) | 3.1.1 | `3.1` |
 | `solana-transaction`, `solana-keypair`, `solana-signer` (cli, dev) | 6.0.0, 4.0.0, 4.0.0 | `4.3`, `3.1`, `3.0`: the LiteSVM generation, same exception |
 | `solana-hash` (cli, dev) | 4.7.0, pinned by LiteSVM (`~4.6`) | `4.6` |

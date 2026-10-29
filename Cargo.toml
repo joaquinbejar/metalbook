@@ -63,9 +63,11 @@ solana-hash = "4.6"
 # metalbook-cli's RPC client: the cross-repo choice (as quotebook). 4.4.0 is the latest stable
 # but pulls the agave 4.4 crates LiteSVM 0.18.1 does not build with; 4.3 (4.3.2) is the newest
 # that resolves with the LiteSVM pins (checked on crates.io on 2026-10-29). solana-rpc-client-api
-# (same release) gives the preflight logs; solana-commitment-config 3.1.1 is the latest.
-solana-rpc-client = "4.3"
-solana-rpc-client-api = "4.3"
+# (same release) gives the preflight logs; solana-commitment-config 3.1.1 is the latest. Tilde,
+# not caret, so `cargo update` cannot move them to 4.4: the LiteSVM-generation exception
+# recorded in docs/PLAN.md (Dependencies).
+solana-rpc-client = "~4.3"
+solana-rpc-client-api = "~4.3"
 solana-commitment-config = "3.1"
 
 [workspace.lints.rust]
