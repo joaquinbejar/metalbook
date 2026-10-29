@@ -30,6 +30,12 @@ pyth-lite = { git = "https://github.com/joaquinbejar/varswap", rev = "5cf95aa97e
 quotebook-core = { git = "https://github.com/joaquinbejar/quotebook", rev = "578314c6ae03a3ab9ea4b045cfed60fa442ae607" }
 quotebook-sdk = { git = "https://github.com/joaquinbejar/quotebook", rev = "578314c6ae03a3ab9ea4b045cfed60fa442ae607" }
 # Off-chain only (metalbook-maker, metalbook-keeper). Versions checked on crates.io on 2026-10-29.
+# metalbook-keeper's Hermes client: one blocking HTTP crate, TLS through rustls (ring, webpki
+# roots), no native TLS. ureq 3.5.0, serde 1.0.229, serde_json 1.0.154, base64 0.23.1.
+ureq = { version = "3.5", default-features = false, features = ["rustls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+base64 = "0.23"
 rust_decimal = "1.43"
 thiserror = "2.0"
 # metalbook-maker tests only: the independent pricing reference.
