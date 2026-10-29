@@ -411,3 +411,63 @@ proptest! {
         prop_assert!(q.bid <= q.ask);
     }
 }
+
+/// Codex's case on #13: the bid must round the exact value down. 699999999999.99999999999999999
+/// USD is 699_999_999_999_999_999.99999999999 atoms, less than one tick of 7e17 atoms, so the
+/// bid is 0 ticks. A Decimal quotient rounded before the floor gave 1 tick.
+#[test]
+fn test_quote_rounding_regression_large_tick() {
+    let value: Decimal = "699999999999.99999999999999999".parse().unwrap();
+    let m = a_mark(value, Decimal::ZERO, dec!(700000000000));
+    let q = quote_atoms(&m, Decimal::ZERO, 700_000_000_000_000_000).unwrap();
+    assert_eq!((q.bid, q.ask), (0, 700_000_000_000_000_000));
+}
+
+/// Exact rational reference: `value = mantissa / 10^scale` USD, so in atoms
+/// `mantissa × 10^6 / 10^scale`; floor and ceiling by integer division only.
+/// A denominator too large for a `u128` exceeds every numerator here, so the quotient is 0.
+fn reference_ticks(value: Decimal, tick: u64, up: bool) -> Option<u128> {
+    let m = u128::try_from(value.mantissa()).ok()?;
+    let num = m.checked_mul(1_000_000)?;
+    let den = 10u128
+        .checked_pow(value.scale())
+        .and_then(|p| p.checked_mul(u128::from(tick)));
+    let (q, exact) = match den {
+        Some(den) => (num / den, num % den == 0),
+        None => (0, num == 0),
+    };
+    (if up && !exact { q + 1 } else { q }).checked_mul(u128::from(tick))
+}
+
+proptest! {
+    #![proptest_config(config())]
+
+    /// Over arbitrary decimals (96-bit mantissas, up to 28 fractional digits) and arbitrary
+    /// non-zero u64 ticks (small ones half the time),
+    /// with zero error and spread, the bid is exactly the floor and the ask exactly the
+    /// ceiling of the value on the tick grid (the ask capped at the max payout's floor).
+    #[test]
+    fn test_quote_rounding_matches_exact_rational_reference(
+        mantissa in prop_oneof![0u128..=1_000_000_000_000u128, 0u128..=(1u128 << 96) - 1], scale in 0u32..=28, tick in prop_oneof![1u64..=1_000_000, 1u64..=u64::MAX],
+    ) {
+        let value = Decimal::from_i128_with_scale(mantissa as i128, scale);
+        let max = value.ceil() + Decimal::ONE;
+        let m = a_mark(value, Decimal::ZERO, max);
+        match quote_atoms(&m, Decimal::ZERO, tick) {
+            Ok(q) => {
+                let bid = reference_ticks(value, tick, false).unwrap();
+                let ask = reference_ticks(value, tick, true).unwrap();
+                let ceiling = reference_ticks(max, tick, false).unwrap();
+                prop_assert_eq!(u128::from(q.ask), ask.min(ceiling));
+                prop_assert_eq!(u128::from(q.bid), bid.min(u128::from(q.ask)));
+            }
+            Err(MakerError::Overflow) => {
+                // Only when an amount on the grid does not fit a u64 of atoms.
+                let ask = reference_ticks(value, tick, true);
+                let ceiling = reference_ticks(max, tick, false);
+                prop_assert!(ask.is_none_or(|a| a > u128::from(u64::MAX)) || ceiling.is_none_or(|c| c > u128::from(u64::MAX)));
+            }
+            Err(e) => prop_assert!(false, "unexpected {e:?}"),
+        }
+    }
+}
