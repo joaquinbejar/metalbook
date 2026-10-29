@@ -180,7 +180,16 @@ fn test_cu_table_is_deterministic_and_written() {
         "CPIs each instruction makes (system, token, associated token). Deterministic: two fresh"
     )
     .unwrap();
-    writeln!(out, "runs must agree exactly.").unwrap();
+    writeln!(
+        out,
+        "runs must agree exactly. `sample_settlement` includes decoding the `PriceUpdateV2` with"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "pyth-lite and the series' acceptance rule (`metalbook_core::accept_print`)."
+    )
+    .unwrap();
     writeln!(out).unwrap();
     writeln!(out, "| Instruction | Case | CU |").unwrap();
     writeln!(out, "| --- | --- | ---: |").unwrap();

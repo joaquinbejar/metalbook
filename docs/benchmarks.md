@@ -2,7 +2,8 @@
 
 Measured by `make bench` (`metalbook-tests/tests/cu.rs`) in LiteSVM, sBPF v3, including the
 CPIs each instruction makes (system, token, associated token). Deterministic: two fresh
-runs must agree exactly.
+runs must agree exactly. `sample_settlement` includes decoding the `PriceUpdateV2` with
+pyth-lite and the series' acceptance rule (`metalbook_core::accept_print`).
 
 | Instruction | Case | CU |
 | --- | --- | ---: |

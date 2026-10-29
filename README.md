@@ -5,10 +5,14 @@
 Cash-settled European options on gold (XAU/USD) and silver (XAG/USD) on Solana, fully
 collateralized and settled in USDC from Pyth prices.
 
-**Status:** milestones 1 to 4 of [`docs/PLAN.md`](docs/PLAN.md) are implemented: the domain math
-and settlement rules (`metalbook-core`) and the on-chain program (`metalbook-program`) for
-listing, writing, settlement, redemption and writer claims. Pricing and quoting through optfix
-and QuoteBook (milestone 5) and devnet (milestone 7) are next. Not audited; not deployed.
+**Status:** implemented and reviewed: the domain math, settlement rules and account layouts
+(`metalbook-core`); the on-chain program (`metalbook-program`) for listing, writing,
+settlement from Pyth, redemption, writer claims and rent recovery; the pricing adapter
+(`metalbook-maker`) with a LiteSVM demo trading a long token through QuoteBook; and the
+settlement keeper (`metalbook-keeper`). Open: optfix as the vanilla pricer (the demo uses
+OptionStratLib as a stand-in until optfix's Black-Scholes kernel ships), the live Hermes
+client and Pyth receiver posting, and devnet ([`docs/PLAN.md`](docs/PLAN.md) milestones 5 and 7).
+Not audited; not deployed.
 
 ## Contents
 
@@ -18,6 +22,7 @@ and QuoteBook (milestone 5) and devnet (milestone 7) are next. Not audited; not 
 - [Instructions](#instructions)
 - [Lifecycle](#lifecycle)
 - [Settlement and its trust assumption](#settlement-and-its-trust-assumption)
+- [Quoting through QuoteBook](#quoting-through-quotebook)
 - [Metals market hours](#metals-market-hours)
 - [Error codes](#error-codes)
 - [Building and testing](#building-and-testing)
@@ -52,11 +57,11 @@ writer and the vault empties exactly.
 
 | Crate | Role |
 | --- | --- |
-| `metalbook-core` | `no_std`, integers only, never panics. Unit newtypes, series terms, payoff and collateral, the vault ledger of a series (`SeriesLedger`), the settlement rules (canonical window slots, the next-print chain, the fallback and the settlement cascade, `SettlementState`), and the on-chain account layouts (`accounts`), shared by the program, the keeper and SDKs. Property-tested against independent references. |
+| `metalbook-core` | `no_std`, integers only, never panics. Unit newtypes, series terms, payoff and collateral, the vault ledger of a series (`SeriesLedger`), the settlement rules (canonical window slots, the next-print chain, the fallback and the settlement cascade, `SettlementState`; `accept_print`, the series' acceptance rule for a Pyth print), and the on-chain account layouts (`accounts`), shared by the program, the keeper and SDKs. Property-tested against independent references. |
 | `metalbook-program` | Pinocchio 0.11 program (`cdylib`). Validates every account, restores the core types from account data (rejecting unreachable states), applies the transition, writes state, then makes the token CPIs. |
 | `metalbook-tests` | LiteSVM tests of the program and the deterministic CU benchmark (`docs/benchmarks.md`). |
 | `metalbook-maker` | Off-chain pricing adapter (milestone 5a): payoff-aware marks behind a `VanillaPricer` trait (a put; a capped call as `C(K) − C(cap)`, error bounds summed), two-sided quotes rounded toward the maker, and quotebook quote terms. |
-| `metalbook-keeper` | Off-chain settlement keeper (milestone 7a): posts every canonical slot, chain link and the latest fallback within `D`, then settles; `PriceSource` and `Chain` traits; the Hermes API key only from `METALBOOK_HERMES_API_KEY`. |
+| `metalbook-keeper` | Off-chain settlement keeper (milestone 7a): posts every eligible canonical slot, chain link and the latest eligible fallback within `D`, then settles; `PriceSource` and `Chain` traits; the Hermes API key only from `METALBOOK_HERMES_API_KEY`. |
 | `lint-control` | Failing control proving that the workspace lints reject panicking macros (shared with optfix, quotebook and varswap). |
 
 External pieces: SPL Token and the associated token program (CPI through `pinocchio-token`
@@ -153,6 +158,10 @@ cascade falls back, in order (PLAN 4.3):
 5. **Void**, from the hard deadline `+ D`, only if nothing at all was posted.
 
 A candidate that exists but is still inside its challenge delay `D` blocks every lower step.
+Every posted print must pass Pyth's verification (owned by the Pyth receiver, `Full`, the
+series' feed id) and the series' own rule, `metalbook_core::accept_print`: a positive price,
+the series' pinned exponent, `conf / price` within the series' bound, and
+`prev_publish_time > 0`.
 
 **Trust assumption.** Canonicity removes the choice of price *within* each slot, link and
 fallback, not the choice of *which* candidates exist when `settle` runs. With nobody else
@@ -166,6 +175,32 @@ window slot with a canonical print, every chain link and the latest fallback. Th
 keeper is run by the protocol (`metalbook-keeper`, milestone 7) and posts every canonical
 print from Hermes as soon as it exists; anyone else can run one, since every instruction it
 needs is permissionless.
+
+### The keeper
+
+`metalbook-keeper` implements that honest keeper. Each `Keeper::tick` reads a series with the
+program's own layouts, posts the canonical print of every empty window slot, every missing
+chain link in order and the latest fallback, then calls `settle` as soon as the cascade
+allows. A canonical print the series would reject (`accept_print`) is skipped: its slot stays
+empty, an ineligible chain link ends the chain there, and the fallback steps back to the
+latest eligible print. A failed post is benign only if the series, re-read right after,
+already holds the candidate (another keeper won the race); any other failure ends the tick
+with an error and without settling, so an outage can never make the keeper settle a subset
+it knew how to complete. Run `tick` more often than `D`. Prices come from a `PriceSource`
+(Hermes in production, tapes in tests) and transactions from a `Chain` (RPC in production,
+LiteSVM in tests).
+
+## Quoting through QuoteBook
+
+Long tokens trade on [QuoteBook](https://github.com/joaquinbejar/quotebook) as a long mint /
+USDC series (one long token per base lot). A maker marks a series with `metalbook-maker`
+(`mark`: a put, or a capped call as the call spread `C(K) − C(cap)`, scaled by the
+multiplier; no marks while the market is closed or once the settlement window has started),
+turns the mark into a bid and an ask rounded toward itself (`quote_atoms`, exact integer
+tick math), and builds quotebook quote terms (`quote_terms`). A taker fills through
+quotebook's signed-quote `settle`. `metalbook-tests/tests/quotebook_demo.rs` runs the whole
+path in LiteSVM, from minting long tokens to the quotebook fill, the Pyth settlement and the
+redemption.
 
 ## Metals market hours
 
@@ -246,7 +281,8 @@ Requirements: stable Rust and the Agave toolchain (`cargo build-sbf`).
 ```sh
 make pre-push   # fmt check, clippy -D warnings, lint and program controls, SBF build, all tests, docs
 make program    # build target/deploy/metalbook_program.so (fails on SBF frames above 4 KiB)
-make test       # unit, property and LiteSVM tests (needs `make program` first)
+make quotebook-program  # build quotebook's program at the pinned rev, for the demo
+make test       # unit, property and LiteSVM tests (needs both programs built first)
 make bench      # regenerate docs/benchmarks.md
 ```
 
