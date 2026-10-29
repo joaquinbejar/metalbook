@@ -286,6 +286,8 @@ make test       # unit, property and LiteSVM tests (needs both programs built fi
 make bench      # regenerate docs/benchmarks.md
 ```
 
+Devnet: [`docs/devnet.md`](docs/devnet.md) (runbook, not yet executed).
+
 Project rules (no panics outside tests, latest stable dependencies, checked arithmetic,
 explicit rounding, negative tests with forged accounts): [`rules/global_rules.md`](rules/global_rules.md).
 
