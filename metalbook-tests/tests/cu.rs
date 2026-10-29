@@ -82,6 +82,53 @@ fn measure() -> Vec<(&'static str, &'static str, u64)> {
     rows.push(("close", "partial", env.send(&[ix], &[&w]).unwrap()));
     let ix = env.ix_close(&w.pubkey(), put, 1);
     rows.push(("close", "to zero", env.send(&[ix], &[&w]).unwrap()));
+
+    // Settlement of the call series: 30 window slots, then a chain link and a fallback.
+    let series = call.series();
+    let mint_w = env.writer(100_000);
+    env.long_account(&mint_w.pubkey(), call);
+    env.send(&[env.ix_mint(&mint_w.pubkey(), call, 1)], &[&mint_w])
+        .unwrap();
+    env.set_time(EXPIRY + 10);
+    let start = EXPIRY - WINDOW_S;
+    let pu = env.price_update(PriceUpdateArgs::xau(4_100_000, start + 1, start - 1));
+    let ix = env.ix_sample(&series, &pu);
+    rows.push((
+        "sample_settlement",
+        "first print: slot 0 and fallback, expires the series",
+        env.send(&[ix], &[&admin]).unwrap(),
+    ));
+    for i in 1..29 {
+        let b = start + i * SLOT_S;
+        let pu = env.price_update(PriceUpdateArgs::xau(4_100_000, b + 1, b - 1));
+        env.send(&[env.ix_sample(&series, &pu)], &[&admin]).unwrap();
+    }
+    let b = start + 29 * SLOT_S;
+    let pu = env.price_update(PriceUpdateArgs::xau(4_100_000, b + 1, b - 1));
+    let ix = env.ix_sample(&series, &pu);
+    rows.push((
+        "sample_settlement",
+        "window slot and fallback",
+        env.send(&[ix], &[&admin]).unwrap(),
+    ));
+    let pu = env.price_update(PriceUpdateArgs::xau(4_100_000, EXPIRY + 1, b + 1));
+    let ix = env.ix_sample(&series, &pu);
+    rows.push((
+        "sample_settlement",
+        "next-print link",
+        env.send(&[ix], &[&admin]).unwrap(),
+    ));
+    let ix = env.ix_settle(&series);
+    rows.push((
+        "settle",
+        "full window (30 slots)",
+        env.send(&[ix], &[&admin]).unwrap(),
+    ));
+
+    // Void: the put series, nothing posted, after the hard deadline plus D.
+    env.set_time(EXPIRY + HARD_S + D);
+    let ix = env.ix_settle(&put.series());
+    rows.push(("settle", "void", env.send(&[ix], &[&admin]).unwrap()));
     rows
 }
 

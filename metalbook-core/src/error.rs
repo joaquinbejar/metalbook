@@ -34,6 +34,13 @@ pub enum CoreError {
     /// The vault accounting does not match the series state. Never expected; returned instead
     /// of asserting.
     InvariantViolated = 11,
+    /// Oracle parameters out of range (`OracleParams::try_new`).
+    InvalidOracleParams = 12,
+    /// A print with a zero price, `prev_publish_time <= 0`, or `prev_publish_time` after
+    /// `publish_time`.
+    InvalidPrint = 13,
+    /// A print that qualifies as no settlement candidate.
+    PrintNotUsable = 14,
 }
 
 impl fmt::Display for CoreError {
@@ -51,6 +58,9 @@ impl fmt::Display for CoreError {
             Self::InsufficientWritten => "more contracts than written and still open",
             Self::InsufficientLongTokens => "more long tokens than outstanding",
             Self::InvariantViolated => "vault accounting does not match the series state",
+            Self::InvalidOracleParams => "oracle parameters out of range",
+            Self::InvalidPrint => "price print is malformed",
+            Self::PrintNotUsable => "print qualifies as no settlement candidate",
         };
         f.write_str(text)
     }
@@ -71,7 +81,7 @@ mod tests {
     use super::CoreError;
     use std::string::ToString;
 
-    const ALL: [CoreError; 12] = [
+    const ALL: [CoreError; 15] = [
         CoreError::Overflow,
         CoreError::InvalidDiscriminant,
         CoreError::InvalidStrike,
@@ -84,6 +94,9 @@ mod tests {
         CoreError::InsufficientWritten,
         CoreError::InsufficientLongTokens,
         CoreError::InvariantViolated,
+        CoreError::InvalidOracleParams,
+        CoreError::InvalidPrint,
+        CoreError::PrintNotUsable,
     ];
 
     #[test]

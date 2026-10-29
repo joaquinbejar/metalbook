@@ -36,7 +36,7 @@ fn test_init_config_by_upgrade_authority_succeeds_once() {
     let ix = env.ix_init_config(&admin.pubkey(), Params::default_params());
     env.send(std::slice::from_ref(&ix), &[&admin]).unwrap();
     let d = env.account(&config_address()).data;
-    assert_eq!(d.len(), 144);
+    assert_eq!(d.len(), 280);
     assert_eq!(&d[8..40], admin.pubkey().as_ref());
     assert_eq!(&d[40..72], env.usdc.as_ref());
     assert_eq!(&d[72..104], TOKEN_PROGRAM.as_ref());
@@ -230,7 +230,7 @@ fn test_create_series_put_and_capped_call_on_both_metals() {
     ] {
         let series = env.create_series(args);
         let d = env.account(&series).data;
-        assert_eq!(d.len(), 216);
+        assert_eq!(d.len(), 472);
         assert_eq!(env.account(&series).owner, PROGRAM_ID);
         assert_eq!(d[0], 3, "tag");
         assert_eq!(d[4], 0, "Active");
@@ -746,7 +746,7 @@ fn test_mint_and_close_other_writers_position_is_rejected() {
     env.forge(&theirs, fake, Some(ATTACKER_PROGRAM));
     let mut ix = env.ix_close(&w.pubkey(), args, 1);
     ix.accounts[2].pubkey = fake;
-    expect_code(env.send(&[ix], &[&w]), code::INVALID_PDA);
+    expect_code(env.send(&[ix], &[&w]), code::INVALID_ACCOUNT_OWNER);
 }
 
 #[test]

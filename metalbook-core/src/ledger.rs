@@ -67,7 +67,10 @@ impl SeriesLedger {
             SeriesState::Settled => {
                 parts.payout.checked_add(parts.residual)? == terms.max_payout_per_contract()?
             }
-            SeriesState::Voided => false,
+            SeriesState::Voided => {
+                parts.payout == UsdcAtoms::ZERO
+                    && parts.residual == terms.max_payout_per_contract()?
+            }
         };
         if !settled_amounts_ok {
             return Err(CoreError::InvariantViolated);
@@ -142,12 +145,12 @@ impl SeriesLedger {
         self.vault
     }
 
-    /// Payout per long token and residual per written contract, once `Settled`.
+    /// Payout per long token and residual per written contract, once `Settled` or `Voided`.
     #[must_use]
     pub const fn settlement_amounts(&self) -> Option<(UsdcAtoms, UsdcAtoms)> {
         match self.state {
-            SeriesState::Settled => Some((self.payout, self.residual)),
-            SeriesState::Active | SeriesState::Expired | SeriesState::Voided => None,
+            SeriesState::Settled | SeriesState::Voided => Some((self.payout, self.residual)),
+            SeriesState::Active | SeriesState::Expired => None,
         }
     }
 
@@ -234,6 +237,26 @@ impl SeriesLedger {
         Ok(())
     }
 
+    /// `Expired` to `Voided`: no settlement price exists (`docs/PLAN.md` 4.3, step 5). Longs
+    /// receive nothing and each written contract returns its whole collateral to the writer,
+    /// so the vault still empties exactly through the writer claims.
+    ///
+    /// # Errors
+    ///
+    /// `SeriesNotExpired`, `Overflow`, or `InvariantViolated` if the vault does not hold the
+    /// collateral of every open contract.
+    pub fn void(&mut self) -> Result<(), CoreError> {
+        self.require(SeriesState::Expired, CoreError::SeriesNotExpired)?;
+        let residual = self.terms.max_payout_per_contract()?;
+        if residual.checked_mul_contracts(self.open)? != self.vault {
+            return Err(CoreError::InvariantViolated);
+        }
+        self.payout = UsdcAtoms::ZERO;
+        self.residual = residual;
+        self.state = SeriesState::Voided;
+        Ok(())
+    }
+
     /// A holder burns `n` long tokens after settlement: returns `n × payout`.
     ///
     /// # Errors
@@ -258,7 +281,8 @@ impl SeriesLedger {
         Ok(amount)
     }
 
-    /// A writer with `written` open contracts claims its residual after settlement: returns
+    /// A writer with `written` open contracts claims its residual after settlement (or its
+    /// whole collateral after a void): returns
     /// `written × residual`. The caller enforces one claim per writer; this checks the series
     /// total.
     ///
@@ -268,7 +292,9 @@ impl SeriesLedger {
     /// `InvariantViolated` if the vault would go below zero.
     #[must_use = "the residual must be transferred"]
     pub fn claim_writer(&mut self, written: Contracts) -> Result<UsdcAtoms, CoreError> {
-        self.require(SeriesState::Settled, CoreError::SeriesNotSettled)?;
+        if !matches!(self.state, SeriesState::Settled | SeriesState::Voided) {
+            return Err(CoreError::SeriesNotSettled);
+        }
         require_nonzero(written)?;
         let unclaimed = self
             .writers_unclaimed
@@ -297,15 +323,13 @@ impl SeriesLedger {
                 }
                 self.terms.collateral(self.open)?
             }
-            SeriesState::Settled => self
+            SeriesState::Settled | SeriesState::Voided => self
                 .payout
                 .checked_mul_contracts(self.longs_outstanding)?
                 .checked_add(
                     self.residual
                         .checked_mul_contracts(self.writers_unclaimed)?,
                 )?,
-            // Voiding is milestone 3; a ledger never reaches it yet.
-            SeriesState::Voided => return Err(CoreError::InvariantViolated),
         };
         if owed == self.vault {
             Ok(())
@@ -491,6 +515,31 @@ mod tests {
             SeriesLedger::restore(t, bad),
             Err(CoreError::InvariantViolated)
         );
+    }
+
+    #[test]
+    fn test_ledger_void_returns_all_collateral_to_writers() {
+        let mut l = put_ledger();
+        l.mint(Contracts::new(3)).unwrap();
+        assert_eq!(l.void(), Err(CoreError::SeriesNotExpired));
+        l.expire().unwrap();
+        l.void().unwrap();
+        assert_eq!(l.state(), SeriesState::Voided);
+        assert_eq!(
+            l.settle(StrikeUsd::new(1)),
+            Err(CoreError::SeriesNotExpired)
+        );
+        assert_eq!(
+            l.redeem(Contracts::new(1)),
+            Err(CoreError::SeriesNotSettled)
+        );
+        assert_eq!(SeriesLedger::restore(*l.terms(), l.parts()), Ok(l));
+        assert_eq!(
+            l.claim_writer(Contracts::new(3)),
+            Ok(UsdcAtoms::new(12_000_000_000))
+        );
+        assert_eq!(l.vault(), UsdcAtoms::ZERO);
+        l.check_invariants().unwrap();
     }
 
     #[test]

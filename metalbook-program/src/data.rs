@@ -34,6 +34,15 @@ impl<'a> Reader<'a> {
         Ok(b)
     }
 
+    /// An `i8`.
+    ///
+    /// # Errors
+    ///
+    /// `InvalidInstructionData` if the data is exhausted.
+    pub fn i8(&mut self) -> Result<i8, MetalbookError> {
+        self.take().map(i8::from_le_bytes)
+    }
+
     /// A `u16`.
     ///
     /// # Errors

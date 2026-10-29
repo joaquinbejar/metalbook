@@ -1,10 +1,9 @@
 //! metalbook on-chain program: cash-settled, fully collateralized European options on gold
 //! and silver, settled in USDC.
 //!
-//! Milestone 2 implements listing and writing: the config, the expiry calendars, series
-//! creation (series account, long mint and USDC vault) and writers minting and closing
-//! contracts. Settlement, redemption and claims follow in milestones 3 and 4
-//! (`docs/PLAN.md`). The payoff, collateral and vault accounting come from `metalbook-core`.
+//! Implemented: the config, the expiry calendars, series creation (series account, long mint
+//! and USDC vault), writers minting and closing contracts (milestone 2), and settlement from
+//! Pyth prints (milestone 3). Redemption and claims follow in milestone 4 (`docs/PLAN.md`). The payoff, collateral and vault accounting come from `metalbook-core`.
 //!
 //! Instruction data is a one-byte [`Instruction`] tag followed by the fields documented on
 //! each handler, little endian.
@@ -48,6 +47,10 @@ pub enum Instruction {
     Mint = 4,
     /// [`processor::position::close`].
     Close = 5,
+    /// [`processor::settlement::sample_settlement`].
+    SampleSettlement = 6,
+    /// [`processor::settlement::settle`].
+    Settle = 7,
 }
 
 impl TryFrom<u8> for Instruction {
@@ -61,6 +64,8 @@ impl TryFrom<u8> for Instruction {
             3 => Ok(Self::CreateSeries),
             4 => Ok(Self::Mint),
             5 => Ok(Self::Close),
+            6 => Ok(Self::SampleSettlement),
+            7 => Ok(Self::Settle),
             _ => Err(MetalbookError::InvalidInstruction),
         }
     }
@@ -86,5 +91,9 @@ pub fn process_instruction(
         Instruction::CreateSeries => processor::series::create_series(program_id, accounts, rest),
         Instruction::Mint => processor::position::mint(program_id, accounts, rest),
         Instruction::Close => processor::position::close(program_id, accounts, rest),
+        Instruction::SampleSettlement => {
+            processor::settlement::sample_settlement(program_id, accounts, rest)
+        }
+        Instruction::Settle => processor::settlement::settle(program_id, accounts, rest),
     }
 }

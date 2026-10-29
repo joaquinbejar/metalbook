@@ -3,25 +3,29 @@
 //! Every account is `#[repr(C)]`, `bytemuck::Pod`, 8-aligned and without implicit padding:
 //! padding is an explicit `_pad` field. Enums and addresses are stored as integers and byte
 //! arrays and validated on load. The first byte is an [`AccountTag`], the second the layout
-//! [`VERSION`]. Milestone 3 extends `Series` with the settlement fields of `docs/PLAN.md` and
-//! bumps the version.
+//! [`VERSION`]. Version 2 (milestone 3) adds the oracle snapshot and the settlement
+//! candidates of `docs/PLAN.md` 4.2 to 4.5.
 
 use bytemuck::Pod;
 use metalbook_core::{
-    Contracts, LedgerParts, OptionKind, OuncesPerContract, SeriesKey, SeriesLedger, SeriesState,
-    SeriesTerms, StrikeUsd, Underlying, UnixTimestamp, UsdcAtoms,
+    Contracts, LedgerParts, OptionKind, OracleParams, OuncesPerContract, SeriesKey, SeriesLedger,
+    SeriesState, SeriesTerms, SettlementParts, SettlementState, StrikeUsd, Underlying,
+    UnixTimestamp, UsdcAtoms,
 };
 
 use crate::error::MetalbookError;
 
 /// Layout version of every account written by this build.
-pub const VERSION: u8 = 1;
+pub const VERSION: u8 = 2;
 
 /// Number of expiries a calendar holds.
 pub const CALENDAR_CAPACITY: usize = 64;
 
 /// Number of cap offsets in the cap grid.
 pub const CAP_GRID_LEN: usize = 4;
+
+/// `Series::settle_method` before settlement.
+pub const SETTLE_METHOD_NONE: u8 = u8::MAX;
 
 /// First byte of every account: which layout follows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -102,7 +106,7 @@ mod layout {
 
     use super::{CALENDAR_CAPACITY, CAP_GRID_LEN};
 
-    /// Global parameters. PDA `["config"]`. 144 bytes.
+    /// Global parameters. PDA `["config"]`. 280 bytes.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Pod, Zeroable)]
     #[repr(C)]
     pub struct Config {
@@ -131,6 +135,36 @@ mod layout {
         pub multiplier: [u32; 2],
         /// Cap grid for calls: `cap = K × (10_000 + bps) / 10_000` exactly, for a non-zero entry.
         pub cap_bps: [u16; CAP_GRID_LEN],
+        /// The Pyth receiver program that owns accepted `PriceUpdateV2` accounts.
+        pub receiver_program: [u8; 32],
+        /// Pyth feed id per underlying.
+        pub feed_id: [[u8; 32]; 2],
+        /// Pinned Pyth exponent per underlying.
+        pub expo: [i8; 2],
+        /// Largest accepted `conf / price`, basis points.
+        pub max_conf_bps: u16,
+        /// Slot tolerance, seconds.
+        pub slot_tolerance_s: u16,
+        /// Filled slots for a `Window` settlement.
+        pub min_samples: u16,
+        /// Links of a complete next-print chain.
+        pub k_next_print: u8,
+        /// Padding.
+        pub _pad2: [u8; 3],
+        /// Averaging window before expiry, seconds.
+        pub window_s: u32,
+        /// Slot spacing, seconds.
+        pub slot_s: u32,
+        /// Challenge delay `D`, seconds.
+        pub challenge_delay_s: u32,
+        /// Fallback lookback before expiry, seconds.
+        pub fallback_lookback_s: u32,
+        /// Hard deadline after expiry, seconds.
+        pub hard_deadline_s: u32,
+        /// Redeem deadline after settlement, seconds (milestone 4).
+        pub redeem_deadline_s: u32,
+        /// Padding.
+        pub _pad3: [u8; 4],
     }
 
     /// Allowed expiries of one underlying. PDA `["calendar", [underlying]]`. 520 bytes.
@@ -155,7 +189,7 @@ mod layout {
     }
 
     /// One option series: terms, snapshot of the config it needs, and vault accounting. PDA
-    /// `["series", [underlying], [kind], strike_le, expiry_le, cap_le, multiplier_le]`. 216 bytes.
+    /// `["series", [underlying], [kind], strike_le, expiry_le, cap_le, multiplier_le]`. 472 bytes.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Pod, Zeroable)]
     #[repr(C)]
     pub struct Series {
@@ -205,6 +239,63 @@ mod layout {
         pub residual: u64,
         /// USDC the vault owes, atoms.
         pub vault_owed: u64,
+        /// Snapshot: the Pyth receiver program.
+        pub receiver_program: [u8; 32],
+        /// Snapshot: the Pyth feed id of the underlying.
+        pub feed_id: [u8; 32],
+        /// Snapshot: pinned Pyth exponent.
+        pub expo: i8,
+        /// Snapshot: links of a complete next-print chain.
+        pub k_next_print: u8,
+        /// Snapshot: largest accepted `conf / price`, basis points.
+        pub max_conf_bps: u16,
+        /// Snapshot: slot tolerance, seconds.
+        pub slot_tolerance_s: u16,
+        /// Snapshot: filled slots for a `Window` settlement.
+        pub min_samples: u16,
+        /// Snapshot: averaging window, seconds.
+        pub window_s: u32,
+        /// Snapshot: slot spacing, seconds.
+        pub slot_s: u32,
+        /// Snapshot: challenge delay `D`, seconds.
+        pub challenge_delay_s: u32,
+        /// Snapshot: fallback lookback, seconds.
+        pub fallback_lookback_s: u32,
+        /// Snapshot: hard deadline after expiry, seconds.
+        pub hard_deadline_s: u32,
+        /// Snapshot: redeem deadline after settlement, seconds.
+        pub redeem_deadline_s: u32,
+        /// Sum of the raw mantissas of the filled slots, `u128` little endian.
+        pub sample_sum: [u8; 16],
+        /// Bitmap of filled slots.
+        pub filled_slots: u32,
+        /// Number of next-print links.
+        pub next_len: u8,
+        /// `SettleMethod` once settled, [`SETTLE_METHOD_NONE`](crate::state::SETTLE_METHOD_NONE)
+        /// before.
+        pub settle_method: u8,
+        /// Padding.
+        pub _pad4: [u8; 2],
+        /// Next-print link publish times.
+        pub next_times: [i64; 5],
+        /// Next-print link raw mantissas.
+        pub next_prices: [u64; 5],
+        /// Fallback publish time (zero if none).
+        pub fallback_time: i64,
+        /// Fallback raw mantissa (zero if none).
+        pub fallback_price: u64,
+        /// Time of the last new slot.
+        pub window_changed: i64,
+        /// Time of the last new link.
+        pub next_print_changed: i64,
+        /// Time of the last fallback replacement.
+        pub fallback_changed: i64,
+        /// Settlement price, USDC atoms per ounce (zero before settlement and after a void).
+        pub settlement_price: u64,
+        /// Prints averaged into the settlement price.
+        pub settlement_samples: u16,
+        /// Padding.
+        pub _pad5: [u8; 6],
     }
 
     /// One writer's position in one series. PDA `["writer", series, owner]`. 80 bytes.
@@ -322,6 +413,63 @@ impl Series {
         Ok(SeriesLedger::restore(self.terms()?, parts)?)
     }
 
+    /// The validated oracle snapshot.
+    ///
+    /// # Errors
+    ///
+    /// `InvalidConfig` if the stored parameters are out of range.
+    #[must_use = "the result carries a possible error"]
+    pub fn oracle_params(&self) -> Result<OracleParams, MetalbookError> {
+        Ok(OracleParams::try_new(
+            self.window_s,
+            self.slot_s,
+            self.slot_tolerance_s,
+            self.min_samples,
+            self.k_next_print,
+            self.challenge_delay_s,
+            self.fallback_lookback_s,
+            self.hard_deadline_s,
+            self.expo,
+        )?)
+    }
+
+    /// The validated settlement candidates.
+    ///
+    /// # Errors
+    ///
+    /// As [`Series::oracle_params`], or `InvariantViolated` for an unreachable state.
+    #[must_use = "the result carries a possible error"]
+    pub fn settlement(&self, params: &OracleParams) -> Result<SettlementState, MetalbookError> {
+        let parts = SettlementParts {
+            sample_sum: u128::from_le_bytes(self.sample_sum),
+            filled_slots: self.filled_slots,
+            next_times: self.next_times,
+            next_prices: self.next_prices,
+            next_len: self.next_len,
+            fallback_time: self.fallback_time,
+            fallback_price: self.fallback_price,
+            window_changed: self.window_changed,
+            next_print_changed: self.next_print_changed,
+            fallback_changed: self.fallback_changed,
+        };
+        Ok(SettlementState::restore(params, parts)?)
+    }
+
+    /// Stores the settlement candidates.
+    pub fn store_settlement(&mut self, state: &SettlementState) {
+        let p = state.parts();
+        self.sample_sum = p.sample_sum.to_le_bytes();
+        self.filled_slots = p.filled_slots;
+        self.next_times = p.next_times;
+        self.next_prices = p.next_prices;
+        self.next_len = p.next_len;
+        self.fallback_time = p.fallback_time;
+        self.fallback_price = p.fallback_price;
+        self.window_changed = p.window_changed;
+        self.next_print_changed = p.next_print_changed;
+        self.fallback_changed = p.fallback_changed;
+    }
+
     /// Stores the accounting of `ledger`.
     pub fn store_ledger(&mut self, ledger: &SeriesLedger) {
         let p = ledger.parts();
@@ -357,9 +505,9 @@ mod tests {
 
     #[test]
     fn test_account_sizes_are_fixed() {
-        assert_eq!(core::mem::size_of::<Config>(), 144);
+        assert_eq!(core::mem::size_of::<Config>(), 280);
         assert_eq!(core::mem::size_of::<Calendar>(), 520);
-        assert_eq!(core::mem::size_of::<Series>(), 216);
+        assert_eq!(core::mem::size_of::<Series>(), 472);
         assert_eq!(core::mem::size_of::<Writer>(), 80);
         assert_eq!(core::mem::align_of::<Series>(), 8);
     }

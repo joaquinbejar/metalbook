@@ -1575,6 +1575,7 @@ dependencies = [
  "pinocchio-associated-token-account",
  "pinocchio-system",
  "pinocchio-token",
+ "pyth-lite",
  "solana-address 2.7.0",
 ]
 
@@ -1585,6 +1586,7 @@ dependencies = [
  "litesvm",
  "litesvm-token",
  "metalbook-core",
+ "pyth-lite",
  "solana-account",
  "solana-address 2.7.0",
  "solana-clock 3.2.1",
@@ -1851,6 +1853,11 @@ dependencies = [
  "tempfile",
  "unarray",
 ]
+
+[[package]]
+name = "pyth-lite"
+version = "0.1.0"
+source = "git+https://github.com/joaquinbejar/varswap?rev=5cf95aa97ef01b0c4a540327f1501c8dcb7a7811#5cf95aa97ef01b0c4a540327f1501c8dcb7a7811"
 
 [[package]]
 name = "qstring"

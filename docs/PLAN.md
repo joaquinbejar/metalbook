@@ -55,7 +55,8 @@ pub struct SeriesTerms {
 pub enum SeriesState { Active, Expired /* past expiry, awaiting price */, Settled, Voided }
 
 pub struct SettlementPrice { pub price: StrikeUsd, pub samples: u16, pub method: SettleMethod }
-#[repr(u8)] pub enum SettleMethod { Window = 0, NextPrint = 1, Fallback = 2 }
+#[repr(u8)] pub enum SettleMethod { Window = 0, NextPrint = 1, PartialNextPrint = 2,
+                                   PartialWindow = 3, Fallback = 4, Void = 5 }
 ```
 
 Invariants:
@@ -121,12 +122,12 @@ struct Writer { hdr: Hdr, series: Address, owner: Address, written: u64, claimed
 | 2 | `create_series` | anyone (payer) | expiry must be in the calendar, strike on the grid |
 | 3 | `mint` | writer | deposit `n × max_payout` USDC, receive `n` long tokens |
 | 4 | `close` | writer | before expiry: burn `n` long tokens held by the writer, withdraw collateral |
-| 5 | `sample_settlement` | anyone | add a Pyth print inside the settlement window |
-| 6 | `settle` | anyone | after the window: fix the settlement price (4.2) |
+| 5 | `sample_settlement` | anyone | add a Pyth print as a window slot, chain link or fallback (tag 6) |
+| 6 | `settle` | anyone | after the window: fix the settlement price, or void (4.3) (tag 7) |
 | 7 | `redeem` | long holder | burn long tokens, receive `payout × n` |
 | 8 | `claim_writer` | writer | receive `written × (max_payout − payout)` |
 | 9 | `set_mark_vol` | keeper | update `mark_vol` (no effect on settlement) |
-| 10 | `void_series` | anyone after hard deadline, if 4.3 says void | unwind |
+| 10 | `void_series` | | folded into `settle` (milestone 3) |
 
 Quotebook integration: a series' long mint and USDC form a quotebook series (`create_series`
 on quotebook, by the admin). The maker service prices through a payoff-aware adapter: a put is
@@ -200,15 +201,20 @@ slot). A pusher therefore has no choice of price within a slot, and late backfil
 Hermes is safe. Same-second prints: see varswap 4.1's milestone 2 checks, which metalbook
 reuses.
 
-Uniqueness is not proven yet; it is a milestone 3 gate. Pyth documents the rule
-(`pythnet_sdk/src/messages.rs`, `PriceFeedMessage::prev_publish_time`) but also two
-exceptions: during the message-sending migration some updates may not reach other chains, so
-a moment can have no canonical update; and `prev_publish_time` may equal `publish_time` when
-the aggregation was unsuccessful. Milestone 3 checks the rule against mainnet fixtures
-captured from Hermes (including same-second and failed-aggregation messages) before relying
-on it. If uniqueness cannot be shown, the fallback is first-write-wins with the residual
-selection risk quantified and accepted by you (codex review). Test: two valid, different
-prices for the same slot in both orders; only the canonical one is accepted.
+Uniqueness gate (milestone 3). Pyth documents the rule (`pythnet_sdk/src/messages.rs`,
+`PriceFeedMessage::prev_publish_time`) and two exceptions: an update Pythnet never sent leaves
+a moment with no canonical update (liveness, not choice), and failed aggregations and later
+aggregates of the same second repeat `prev_publish_time == publish_time`, an empty interval
+that never matches. varswap's milestone 2 proved uniqueness from the aggregation source
+(varswap `docs/PLAN.md` 4.1, verified facts "Canonical print"); metalbook relies on that proof
+and adds `prev_publish_time > 0` (the first aggregate after a feed (re)initialization has
+`0`, and its interval would overlap earlier prints). Milestone 3 tests it on synthetic Pyth
+tapes (`metalbook-core/tests/settlement_props.rs`: same-second repeats, failed aggregations,
+halts of 30 s to 15 min): the candidates are computed independently from their definitions,
+posting the whole tape in any order gives exactly them, and posting any subset in any order
+never stores anything else. So no first-write-wins fallback is needed. Mainnet tapes replace
+the synthetic ones once a Hermes key exists (verified facts). LiteSVM tests also run one real
+`PriceUpdateV2` (XAU/USD, captured by varswap) through `sample_settlement`.
 
 ### 4.3 Missing or stale oracle at expiry
 
@@ -225,8 +231,10 @@ a partial or stale price:
 1. `Window`: immediately from `window_end` if all 30 slots are filled; otherwise from
    `max(window_end, window_changed) + D` with at least `min_samples` slots: mean of
    the window. (Backfilled slots can still arrive after `window_end`, see 4.2.)
-2. `NextPrint`: canonical and chained, so there is no choice and, with all `k` links, no
-   challenge delay. The "next print" after a time `t` is the canonical update that strictly
+2. `NextPrint`: canonical and chained, so there is no choice of price. A complete chain
+   settles from `window_end + D` (decided in milestone 3): canonical next prints exist
+   seconds after `window_end`, so without the delay anyone could settle on the chain before
+   keepers backfill the window, skipping step 1. The "next print" after a time `t` is the canonical update that strictly
    advances past it: `prev_publish_time <= t < publish_time`. Candidate 1 is the next print
    after `window_end`; candidate `j + 1` is the next print after `publish_time(candidate j)`,
    so it must satisfy both `prev_publish_time == publish_time(candidate j)` and
@@ -246,9 +254,36 @@ a partial or stale price:
    `max(hard_deadline, window_changed) + D`.
 4. `Fallback`, from `max(hard_deadline, fallback_changed) + D`: the latest submitted print in `[expiry − X, expiry]`
    (proposed `X = 24 h`).
-5. `void_series` only if all of these are empty at the hard deadline: collateral goes back
-   to writers, since longs have no price. Never void silently: the method used is stored and
-   logged.
+5. Void, from `hard_deadline + D`, only if all of these are empty: collateral goes back to
+   writers, since longs have no price. Never void silently: the method used is stored.
+
+Trust assumption (codex, on #9). Canonicity removes the choice of price for each slot, link
+and fallback, but not the choice of *which* candidates exist when `settle` runs: with no one
+else posting, an adversary can post a favorable subset of the window (at least
+`min_samples`, or any subset after the hard deadline), a partial chain, or an older fallback
+(say `expiry − 3000` at 1000 while `expiry − 2000` at 2000 exists), wait `D` and settle on
+it. Every candidate is monotonically improvable, and an improvement to a candidate that can
+settle on a subset restarts that candidate's `D`: more slots for a window that is not yet
+complete, the next link for a partial chain, a later print for the fallback. Two cases do not
+wait on a restarted `D`, because they leave no subset to choose: a **complete window** (every
+slot filled) settles at once from `window_end`, and a **complete chain** (`k` links) settles
+from `window_end + D` whenever its last link arrived. The protocol is correct under this
+assumption: **at least one honest keeper submits, within `D` of any change, every available
+candidate of higher priority than the one that would otherwise settle**: every window slot
+that has a canonical print, every next-print link that exists, and the latest fallback.
+Posting only one kind is not enough: the latest fallback does not protect against an
+attacker's partial-window mean, which has priority over it, and during an outage a complete
+window may not exist, so the keeper posts the slots and links that do. The default honest
+keeper is the protocol-run keeper of milestone 7, which posts every canonical print from
+Hermes as soon as it exists; anyone else may run one. Tested: a later fallback and extra
+window slots posted during `D` replace the worse candidate and restart `D`, and completing
+the window settles at once.
+
+Priority (codex, after #3): a candidate that exists but is still inside its delay is
+pending, not absent, so `settle` returns `SettlementNotReady` instead of falling through to a
+lower step. The fallback is the latest *first-of-its-second* print (`prev_publish_time <
+publish_time`) in `[expiry − X, expiry]`: later aggregates of the same second repeat
+`prev == publish`, so this leaves no same-second choice.
 
 ### 4.4 Metals market hours
 
@@ -366,7 +401,7 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
      `cargo-build-sbf` fails or reports a frame above 4 KiB (it only warns, and the overflow
      silently corrupts locals; found while building M2). `make program-control`, part of
      `make pre-push`, proves both failure paths.
-   Tests (`metalbook-tests/tests/program.rs`, 30 LiteSVM tests): happy paths for puts and
+   Tests (`metalbook-tests/tests/program.rs`, now 33 LiteSVM tests): happy paths for puts and
    capped calls on both metals, and negative tests for every rule of 3.3 that applies to
    these instructions, with forged accounts (genuine bytes under another owner or at another
    address) for the config, program data, calendar, series, positions, USDC mint and token
@@ -374,6 +409,36 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
 3. **Settlement.** Sampling, window mean, next print, fallback/void. *Done when* tests replay
    XAU fixtures captured from mainnet including a closed-market gap, and every branch of 4.3
    is covered.
+
+   Delivered (M3), with synthetic tapes until a Hermes key exists (the mainnet tape replay
+   is the remaining part of this criterion):
+   - `metalbook-core::settlement`: `OracleParams` (validated), `Print`
+     (`prev_publish_time > 0`), `SettlementState::add_print` (canonical slot, chain link,
+     fallback; a print may be several at once), `decide` (the cascade above), and `to_atoms`
+     (`sum × 10^expo / count` in USDC atoms, one rounding to nearest, ties up: the fixing is
+     neutral between longs and writers, and the payout derived from it is still rounded down).
+     `SeriesLedger::void` returns all collateral to writers.
+   - Program: `sample_settlement` (tag 6; accounts `[series, price_update]`) decodes the
+     `PriceUpdateV2` with varswap's `pyth-lite` (git, rev `5cf95aa`) and checks owner =
+     snapshot receiver, `Full`, feed id, pinned exponent, positive price and confidence; no
+     staleness bound (canonical prints can be backfilled). `settle` (tag 7; `[series]`) runs
+     the cascade and also performs the void, so the planned `void_series` (10) is not a
+     separate instruction. The first `sample_settlement` or `settle` at or after expiry moves
+     `Active` to `Expired`.
+   - `Config` (280 bytes) gains the oracle terms: receiver program, feed id and pinned
+     exponent per metal (XAU −3, XAG −5, read from mainnet accounts), `max_conf_bps`, slot
+     tolerance, `min_samples`, `k`, window, slot, `D`, fallback lookback, hard deadline,
+     redeem deadline. They are validated through `OracleParams` when set, and every
+     `create_series` copies them into the series (`Series`, 472 bytes, layout version 2), so
+     live series never read the config again (tested by changing `min_samples`, `D` and the
+     feed id mid-life).
+   - Writer positions now check their owner explicitly (codex note on #7).
+   - Tests: core unit tests and the synthetic-tape properties above; 12 LiteSVM settlement
+     tests (full window, `min_samples` with `D`, sample-and-settle in one transaction, slot
+     rules and a 20-minute gap, canonical vs same-second repeat in both orders, the chain with
+     non-advancing and equal-time messages, pending window blocking the chain, every
+     hard-deadline step and the void, every oracle rejection with forged updates, the
+     snapshot, the real XAU update, the writer owner check).
 4. **Redeem and claim.** *Done when* end-to-end ITM, ATM, OTM for both kinds and both metals
    empty the vault exactly.
 5. **Pricing and quoting.** optfix marks, quotebook series, maker config. *Done when* a LiteSVM
@@ -390,6 +455,10 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
   Their `schedule` attribute is as summarized in 4.4.
 - They are available through the pull oracle (Hermes update, posted by the Pyth receiver as a
   `PriceUpdateV2`). Pyth's market-hours documentation page is checked in milestone 3.
+- Hermes `/v2/updates/price/*` and Benchmarks `/v1/updates/price/*` return 401 without an
+  API key (varswap, 2026-10-29); `/v2/price_feeds` is still open. Mainnet settlement tapes
+  (milestone 3) and keepers (milestone 7) need a Hermes key, read from an environment
+  variable and never committed; until then tests use synthetic tapes.
 - Sponsored push feeds are not usable for settlement (varswap M2, 2026-10-29): the XAG/USD
   push account had not updated since 2026-07-03, while XAU/USD and SOL/USD were current;
   the XAU/USD exponent is −3. So settlement accepts any `Full`-verified `PriceUpdateV2` for
@@ -415,6 +484,7 @@ whenever it is added or touched.
 | `pinocchio-token` | 0.7.0 | `0.7`, see conflict below |
 | `pinocchio-associated-token-account` | 0.4.0 | `0.4`, see conflict below |
 | `optfix` | unpublished | git, pinned `rev` |
+| `pyth-lite` (varswap) | unpublished | git, `rev = 5cf95aa` |
 | `litesvm-token` (dev) | 0.18.1 | `0.18` |
 | `solana-account` (dev) | pinned by LiteSVM | `4.3` |
 | `solana-clock` (dev) | pinned by LiteSVM (`~3.2.0`) | `3.2` |
