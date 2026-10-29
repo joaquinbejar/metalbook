@@ -127,8 +127,13 @@ struct Writer { hdr: Hdr, series: Address, owner: Address, written: u64, claimed
 | 10 | `void_series` | anyone after hard deadline, if 4.3 says void | unwind |
 
 Quotebook integration: a series' long mint and USDC form a quotebook series (`create_series`
-on quotebook, by the admin). The maker service prices with optfix `price_and_greeks` using
-Pyth spot and `mark_vol`, and quotes through market-maker-rs's options support.
+on quotebook, by the admin). The maker service prices through a payoff-aware adapter: a put is
+one optfix put; a capped call is a call spread `C(K) − C(cap)`, value and every greek, scaled
+by `multiplier / 1000`, both error bounds combined, converted to USDC ticks with directed
+rounding. A vanilla call would overvalue the token at high spot (above the maximum payout).
+The settlement-window mean makes the European mark an approximation; documented. Tested:
+spot above cap, non-unit multipliers, value never above the maximum payout. Collateral never
+depends on a mark: always the contractual maximum payout.
 MatchBook: optional `create_market` with the long mint as base, done off-chain by the admin.
 
 ### 3.3 Security checks
@@ -141,8 +146,8 @@ MatchBook: optional `create_market` with the long mint as base, done off-chain b
   the series; writer's USDC account mint is USDC and owned by the writer; `Writer` PDA from
   (series, writer); collateral computed on-chain with directed rounding; `close` burns from an
   account owned by the writer and cannot exceed `writer.written`.
-- `sample_settlement`: price update owned by the Pyth receiver, `Full`, `feed_id` equals the
-  underlying's feed in `Config`, confidence within bound, and the print fits one of three
+- `sample_settlement`: price update owned by the receiver program id in the series snapshot,
+  `Full`, `feed_id` equals the series' snapshot feed, confidence within bound, and the print fits one of three
   slots: a window slot `i` (fixed `t_i = window_start + i × 60 s`, `publish_time` in
   `[t_i, t_i + tol]`, `tol` 5 to 10 s, slot not yet filled); a next-print candidate
   (`publish_time > window_end`, replacing the largest stored candidate if smaller); or the
@@ -175,13 +180,16 @@ cheaper and plainly a call spread.
 
 Options: single print (first update with `publish_time >= expiry`): cheap, easy to game with a
 selective push; **window average**: mean of grid-sampled prints over `[expiry − W, expiry]`
-(proposed `W = 30 min`, one sample per minute); TWAP from Pyth's EMA: not a defined window,
+(proposed `W = 30 min`, one slot per minute); TWAP from Pyth's EMA: not a defined window,
 opaque. **Recommended: arithmetic mean of window samples**, requiring at least `min_samples`
-(proposed 20 of 30). Slots are fixed in time, not relative to the previous sample, so the
-first sampler cannot set the phase of later ones. Hermes serves historical updates by
-timestamp, so slots can be backfilled after the fact: good for liveness, and the reason the
-slot rule is strict. The settlement price is rounded to
-nearest cent, then payout per contract is rounded down.
+(proposed 20 of 30).
+
+Each slot takes the **canonical** print for its boundary `t_i`: `prev_publish_time < t_i <=
+publish_time`, the same rule as varswap 4.1, so a pusher has no choice of price within a
+slot and late backfill from Hermes is safe. If milestone 3 cannot prove uniqueness from Pyth
+semantics, the fallback is first-write-wins with the residual selection risk quantified and
+accepted by you (codex review). Test: two valid, different prices for the same slot in both
+orders; only the canonical one is accepted.
 
 ### 4.3 Missing or stale oracle at expiry
 
@@ -233,7 +241,20 @@ plus holiday closures and early ends. Prices do not update while closed. Consequ
 
 `set_calendar`, strike and cap grid changes, and oracle parameter changes in `Config` apply
 only to series created afterwards: every term a live series needs is copied into it at
-creation. Tested: change each parameter mid-life and check settlement is unchanged.
+creation, and every instruction reads only the copy:
+
+```rust
+struct SeriesSnapshot {
+    usdc_mint: Address, token_program: Address,
+    receiver_program: Address, feed_id: [u8; 32],
+    max_conf_bps: u16, slot_tolerance_s: u16, min_samples: u16, k_next_print: u8, _pad: [u8; 1],
+    window_s: u32, slot_s: u32, challenge_delay_s: u32, fallback_lookback_s: u32,
+    hard_deadline_s: u32, redeem_deadline_s: u32,
+}
+```
+
+Tested: change each `Config` field mid-life and check sampling, settlement, redeem and claim
+are unchanged.
 
 ### 4.6 Unredeemed longs
 
