@@ -10,8 +10,8 @@ runs must agree exactly.
 | `set_config` | same admin | 505 |
 | `set_calendar` | creates the calendar, 2 expiries | 6581 |
 | `set_calendar` | replaces the list, 64 expiries | 1310 |
-| `create_series` | put | 29362 |
-| `create_series` | capped call | 33980 |
+| `create_series` | put | 29440 |
+| `create_series` | capped call | 34058 |
 | `mint` | first mint, creates the position | 9197 |
 | `mint` | existing position | 4780 |
 | `close` | partial | 4745 |

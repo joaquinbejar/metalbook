@@ -99,6 +99,32 @@ pub fn token_account(
     Ok(())
 }
 
+/// `account` is a usable series vault: an initialized SPL Token account of `mint` owned by
+/// `owner` (the series), with no delegate and no close authority.
+///
+/// # Errors
+///
+/// `InvalidAccountOwner` if the token program does not own it, `InvalidVault` otherwise.
+#[inline(never)]
+pub fn vault_account(
+    account: &AccountView,
+    mint: &Address,
+    owner: &Address,
+) -> Result<(), MetalbookError> {
+    owned_by(account, &pinocchio_token::ID)?;
+    let data =
+        TokenAccount::from_account_view(account).map_err(|_| MetalbookError::InvalidVault)?;
+    if data.mint() != mint
+        || data.owner() != owner
+        || data.state() != AccountState::Initialized
+        || data.has_delegate()
+        || data.has_close_authority()
+    {
+        return Err(MetalbookError::InvalidVault);
+    }
+    Ok(())
+}
+
 /// Creates the program-owned (or `owner`-owned) account `target` at a PDA, signed by
 /// `seeds`, funded by `payer` to rent exemption.
 ///

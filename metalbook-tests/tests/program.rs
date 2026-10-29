@@ -275,6 +275,37 @@ fn test_create_series_prefunded_address_still_succeeds() {
 }
 
 #[test]
+fn test_create_series_with_precreated_vault_succeeds() {
+    let mut env = Env::new();
+    let args = SeriesArgs::xau_put(4_000);
+    // Anyone can create the series' associated USDC account before the listing.
+    let usdc = env.usdc;
+    let vault = env.token_account(&usdc, &args.series());
+    assert_eq!(vault, ata(&args.series(), &usdc));
+    env.create_series(args);
+    assert_eq!(env.account(&args.series()).owner, PROGRAM_ID);
+}
+
+#[test]
+fn test_create_series_forged_vault_with_delegate_or_close_authority_is_rejected() {
+    // A vault at the right address but with a delegate or close authority set (bytes forged:
+    // only the series could set them on a genuine account).
+    for (tag_at, key_at) in [(72usize, 76usize), (129, 133)] {
+        let mut env = Env::new();
+        let args = SeriesArgs::xau_put(4_000);
+        let usdc = env.usdc;
+        let vault = env.token_account(&usdc, &args.series());
+        let mut a = env.account(&vault);
+        a.data[tag_at..tag_at + 4].copy_from_slice(&1u32.to_le_bytes());
+        a.data[key_at..key_at + 32].copy_from_slice(Address::new_unique().as_ref());
+        env.svm.set_account(vault, a).unwrap();
+        let payer = env.funded();
+        let ix = env.ix_create_series(&payer.pubkey(), args);
+        expect_code(env.send(&[ix], &[&payer]), code::INVALID_VAULT);
+    }
+}
+
+#[test]
 fn test_create_series_terms_and_grids_are_checked() {
     let mut env = Env::new();
     let payer = env.funded();

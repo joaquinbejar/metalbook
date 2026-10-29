@@ -354,13 +354,18 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
      its bump stored; later instructions re-derive it with the stored bump (`sol_sha256`).
    - A pre-funded PDA (someone sent lamports to it first) is topped up, allocated and
      assigned instead of `CreateAccount`, so creation cannot be blocked.
+   - The vault is created with the associated token program's `CreateIdempotent` (anyone can
+     create a valid associated account for the series first) and then checked: SPL Token,
+     USDC mint, owner the series, initialized, no delegate, no close authority (codex
+     review of #7).
    - Collateral, payout and the vault accounting come from `metalbook-core`
      (`SeriesLedger::restore` validates the stored fields on every load); state is written
      before every CPI. `close` is limited to the writer's own `written`, even if the writer
      holds more long tokens.
    - SBF stack: handlers are `#[inline(never)]`, and `make program` fails if
-     `cargo-build-sbf` reports a frame above 4 KiB (it only warns, and the overflow silently
-     corrupts locals; found while building M2).
+     `cargo-build-sbf` fails or reports a frame above 4 KiB (it only warns, and the overflow
+     silently corrupts locals; found while building M2). `make program-control`, part of
+     `make pre-push`, proves both failure paths.
    Tests (`metalbook-tests/tests/program.rs`, 30 LiteSVM tests): happy paths for puts and
    capped calls on both metals, and negative tests for every rule of 3.3 that applies to
    these instructions, with forged accounts (genuine bytes under another owner or at another

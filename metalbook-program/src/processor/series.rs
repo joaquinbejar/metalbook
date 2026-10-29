@@ -7,7 +7,7 @@ use pinocchio::cpi::Seed;
 use pinocchio::sysvars::clock::Clock;
 use pinocchio::sysvars::Sysvar;
 use pinocchio::{AccountView, Address, ProgramResult};
-use pinocchio_associated_token_account::instructions::Create as CreateAta;
+use pinocchio_associated_token_account::instructions::CreateIdempotent;
 use pinocchio_token::instructions::InitializeMint2;
 use pinocchio_token::state::Mint;
 
@@ -177,7 +177,10 @@ pub fn create_series(
         .invoke_with_program(token_program.address())?;
 
     // Vault: the series' associated token account for USDC.
-    CreateAta {
+    // Vault: the series' associated token account for USDC. Idempotent, because anyone can
+    // create a valid associated token account for any wallet first, which would otherwise
+    // block the listing. An existing account is then checked like a new one.
+    CreateIdempotent {
         funding_account: payer,
         account: vault,
         wallet: series,
@@ -186,6 +189,7 @@ pub fn create_series(
         token_program,
     }
     .invoke()?;
+    validate::vault_account(vault, usdc_mint.address(), series.address())?;
     Ok(())
 }
 

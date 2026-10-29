@@ -12,13 +12,29 @@ SBF_ARCH ?= v3
 build:
 	cargo build --workspace
 
-# Build metalbook-program for SBF into target/deploy. cargo-build-sbf only warns when a
-# function's stack frame exceeds 4 KiB, which corrupts memory at run time; fail instead.
+# Build metalbook-program for SBF into target/deploy. cargo-build-sbf's exit status is kept (no
+# pipe), and scripts/check-sbf-log.sh fails the build on a stack frame above 4 KiB, which
+# cargo-build-sbf only warns about.
 .PHONY: program
 program:
-	@cargo build-sbf --manifest-path metalbook-program/Cargo.toml --arch $(SBF_ARCH) 2>&1 | tee target/build-sbf.log
-	@if grep -q "overflows the maximum allowed frame space" target/build-sbf.log; then \
-		echo "program: a stack frame exceeds 4 KiB (see above)"; exit 1; fi
+	@mkdir -p target
+	@cargo build-sbf --manifest-path metalbook-program/Cargo.toml --arch $(SBF_ARCH) \
+		> target/build-sbf.log 2>&1; status=$$?; cat target/build-sbf.log; \
+		if [ $$status -ne 0 ]; then echo "program: cargo-build-sbf failed ($$status)"; exit $$status; fi
+	@sh scripts/check-sbf-log.sh target/build-sbf.log
+
+# Failing controls for `program`: the log check must reject a frame-overflow line, and a
+# failing cargo-build-sbf (an unknown sBPF arch) must make `make program` fail.
+.PHONY: program-control
+program-control:
+	@mkdir -p target
+	@printf '%s\n' 'Error: Function entrypoint overflows the maximum allowed frame space by accessing an offset 64 bytes greater than the maximum of 4096.' \
+		> target/sbf-control.log
+	@if sh scripts/check-sbf-log.sh target/sbf-control.log > /dev/null; then \
+		echo "program-control: the log check accepted a frame overflow"; exit 1; fi
+	@if $(MAKE) --no-print-directory program SBF_ARCH=no-such-arch > /dev/null 2>&1; then \
+		echo "program-control: make program succeeded with a failing cargo-build-sbf"; exit 1; fi
+	@echo "program-control: a frame overflow and a failing cargo-build-sbf both fail make program"
 
 # Run the CU benchmark in LiteSVM and regenerate docs/benchmarks.md
 .PHONY: bench
@@ -60,7 +76,7 @@ doc:
 
 # Pre-push checks: must pass with zero warnings
 .PHONY: pre-push
-pre-push: fmt-check lint lint-control program test doc
+pre-push: fmt-check lint lint-control program-control program test doc
 
 .PHONY: clean
 clean:
