@@ -305,7 +305,16 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
 ## 5. Milestones
 
 1. **Domain and payoff math.** *Done when* `metalbook-core` proptests show collateral ≥ max
-   payout and exact vault conservation across random settlement prices and claim orders.
+   payout and exact vault conservation across random settlement prices and claim orders,
+   and the Cargo workspace enforces the shared lint control (same as optfix):
+   - `lint-control/` (`Cargo.toml`, `src/lib.rs`, `check.sh`) copied from optfix and listed in
+     the workspace members;
+   - `cfg(lint_control)` added to `check-cfg`;
+   - `disallowed_macros = "deny"` in `[workspace.lints.clippy]`, backed by the shared
+     `clippy.toml`;
+   - the lint allowed explicitly in tests, benches and the entrypoint module (Pinocchio's
+     `no_allocator!` expands to `assert!`);
+   - `lint-control` run by `make pre-push`.
 2. **Series, mint, close.** *Done when* LiteSVM tests and a negative test per rule in 3.3 pass.
 3. **Settlement.** Sampling, window mean, next print, fallback/void. *Done when* tests replay
    XAU fixtures captured from mainnet including a closed-market gap, and every branch of 4.3
