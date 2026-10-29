@@ -1,5 +1,5 @@
 [workspace]
-members = ["metalbook-core", "metalbook-program", "metalbook-tests", "metalbook-maker", "lint-control"]
+members = ["metalbook-core", "metalbook-program", "metalbook-tests", "metalbook-maker", "metalbook-keeper", "lint-control"]
 resolver = "2"
 
 [workspace.package]
@@ -15,6 +15,7 @@ proptest = "1.12"
 bytemuck = { version = "1.25", default-features = false, features = ["derive", "min_const_generics"] }
 metalbook-core = { path = "metalbook-core", version = "0.1" }
 metalbook-maker = { path = "metalbook-maker" }
+metalbook-keeper = { path = "metalbook-keeper" }
 # Pinocchio 0.11 generation: decided exception to the latest-stable rule (docs/PLAN.md,
 # Dependencies). pinocchio-token 0.7 and pinocchio-associated-token-account 0.4 are the
 # newest releases built on solana-account-view 2.
@@ -28,7 +29,7 @@ pyth-lite = { git = "https://github.com/joaquinbejar/varswap", rev = "5cf95aa97e
 # main with the M5 taker SDK).
 quotebook-core = { git = "https://github.com/joaquinbejar/quotebook", rev = "578314c6ae03a3ab9ea4b045cfed60fa442ae607" }
 quotebook-sdk = { git = "https://github.com/joaquinbejar/quotebook", rev = "578314c6ae03a3ab9ea4b045cfed60fa442ae607" }
-# Off-chain only (metalbook-maker). Versions checked on crates.io on 2026-10-29.
+# Off-chain only (metalbook-maker, metalbook-keeper). Versions checked on crates.io on 2026-10-29.
 rust_decimal = "1.43"
 thiserror = "2.0"
 # metalbook-maker tests only: the independent pricing reference.

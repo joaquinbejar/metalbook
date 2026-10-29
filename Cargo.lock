@@ -2076,7 +2076,16 @@ dependencies = [
 name = "metalbook-core"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "proptest",
+]
+
+[[package]]
+name = "metalbook-keeper"
+version = "0.1.0"
+dependencies = [
+ "metalbook-core",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -2113,6 +2122,7 @@ dependencies = [
  "litesvm",
  "litesvm-token",
  "metalbook-core",
+ "metalbook-keeper",
  "metalbook-maker",
  "optionstratlib",
  "pyth-lite",

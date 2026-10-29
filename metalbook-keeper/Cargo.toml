@@ -1,0 +1,16 @@
+[package]
+name = "metalbook-keeper"
+description = "Off-chain settlement keeper for metalbook: posts every canonical candidate within the challenge delay and settles"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+metalbook-core = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

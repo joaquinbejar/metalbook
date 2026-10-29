@@ -1,6 +1,6 @@
 //! `sample_settlement` and `settle` (`docs/PLAN.md` 4.2 and 4.3).
 
-use metalbook_core::{Decision, Print, SeriesLedger, SeriesState, UnixTimestamp};
+use metalbook_core::{accept_print, Decision, SeriesLedger, SeriesState, UnixTimestamp};
 use pinocchio::sysvars::clock::Clock;
 use pinocchio::sysvars::Sysvar;
 use pinocchio::{AccountView, Address, ProgramResult};
@@ -41,8 +41,8 @@ pub fn sample_settlement(
     let s = load_series(program_id, series)?;
     let now = Clock::get()?.unix_timestamp;
     let mut ledger = open_ledger(&s)?;
-    let params = s.oracle_params()?;
-    let mut candidates = s.settlement(&params)?;
+    let params = s.oracle_params().map_err(MetalbookError::from)?;
+    let mut candidates = s.settlement(&params).map_err(MetalbookError::from)?;
 
     let print = {
         let bytes = price_update
@@ -54,17 +54,22 @@ pub fn sample_settlement(
             &s.receiver_program,
         )
         .map_err(MetalbookError::from)?;
-        let req = PriceRequirements::new(FeedId::new(s.feed_id), None, s.max_conf_bps);
+        // Pyth's checks (Full, feed, positive price; conf at most the price), then the series'
+        // own rules from metalbook-core, shared with the keeper.
+        let req = PriceRequirements::new(FeedId::new(s.feed_id), None, 10_000);
         let price = update
             .verify(&req, pyth_lite::UnixTimestamp::new(now))
             .map_err(MetalbookError::from)?;
-        if price.exponent() != i32::from(s.expo) {
-            return Err(MetalbookError::OracleExponentMismatch.into());
-        }
-        Print::try_new(
-            price.price().get(),
+        let mantissa =
+            i64::try_from(price.price().get()).map_err(|_| MetalbookError::InvalidPrint)?;
+        accept_print(
+            mantissa,
+            price.conf(),
+            price.exponent(),
             price.publish_time().get(),
             price.prev_publish_time().get(),
+            s.expo,
+            s.max_conf_bps,
         )
         .map_err(MetalbookError::from)?
     };
@@ -106,8 +111,8 @@ pub fn settle(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -
     }
     let mut ledger = open_ledger(&s)?;
     let mut ledger = ledger_after_expiry(&mut ledger, now, s.expiry)?;
-    let params = s.oracle_params()?;
-    let candidates = s.settlement(&params)?;
+    let params = s.oracle_params().map_err(MetalbookError::from)?;
+    let candidates = s.settlement(&params).map_err(MetalbookError::from)?;
     let decision = candidates
         .decide(&params, UnixTimestamp::new(s.expiry), now)
         .map_err(MetalbookError::from)?;
@@ -139,7 +144,7 @@ pub fn settle(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) -
 
 /// The series' ledger, which must still accept prints: `Active` or `Expired`.
 fn open_ledger(s: &Series) -> Result<SeriesLedger, MetalbookError> {
-    let ledger = s.ledger()?;
+    let ledger = s.ledger().map_err(MetalbookError::from)?;
     match ledger.state() {
         SeriesState::Active | SeriesState::Expired => Ok(ledger),
         SeriesState::Settled | SeriesState::Voided => Err(MetalbookError::SeriesAlreadySettled),

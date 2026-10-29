@@ -12,6 +12,7 @@ publish = false
 litesvm = { workspace = true, features = ["precompiles"] }
 litesvm-token = { workspace = true }
 metalbook-core = { workspace = true }
+metalbook-keeper = { workspace = true }
 metalbook-maker = { workspace = true }
 optionstratlib = { workspace = true }
 quotebook-sdk = { workspace = true }

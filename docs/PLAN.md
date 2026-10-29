@@ -527,6 +527,37 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    code table and the make targets. Open question 7 was assessed in 4.6 and decided.
 7. **Devnet.** *Done when* a full series lifecycle runs on devnet against live Pyth XAU.
 
+   Delivered first (M7a, no devnet yet): `metalbook-keeper` (off-chain, std), the honest
+   keeper of the 4.3 trust assumption. `Keeper::tick` reads a series, restores its oracle
+   terms and candidates with `metalbook-core` (so keeper and program apply the same rules),
+   posts the canonical print of every empty window slot, every missing next-print link in
+   order, and the latest fallback if it is later than the stored one, then settles as soon as
+   the cascade allows. A failed post is benign only if the series, re-read right after,
+   already holds the intended candidate (a lost race); any other failure ends the tick with
+   an error and **without settling** (codex, #14: otherwise a receiver or RPC outage would let
+   the keeper settle a subset it knew how to complete). Before posting, every candidate is
+   checked with `metalbook_core::accept_print`, the same rule the program applies after
+   Pyth's verification (positive price, pinned exponent, `conf / price <= max_conf_bps`,
+   `prev_publish_time > 0`): an ineligible canonical slot is skipped and stays empty, an
+   ineligible chain link ends the chain there, and the fallback steps back to the latest
+   eligible print; only failures on eligible candidates abort the tick (codex, #14: one
+   ineligible slot used to abort every tick and block all later slots). Prices come from a `PriceSource` trait (canonical print of a boundary,
+   next strictly advancing print, latest first-of-second print; `TapeSource` replays a tape)
+   and transactions from a `Chain` trait. The Hermes API key is read only from
+   `METALBOOK_HERMES_API_KEY` (`HermesConfig::from_env`), never from a file, and `Debug`
+   redacts it; the Hermes HTTP client and the Pyth receiver posting arrive with devnet
+   (M7b). The account layouts (`Config`, `Calendar`, `Series`, `Writer`, the loaders and the series'
+   accessors) moved from the program into `metalbook_core::accounts`, as quotebook did with
+   quotebook-core, so the program, the keeper and any SDK decode from one source; off-chain
+   readers use `accounts::read`, which copies from unaligned buffers. The LiteSVM tests keep
+   their own restated offsets, so a layout change still has to be made twice on purpose. LiteSVM tests (`metalbook-tests/tests/keeper.rs`)
+   with synthetic tapes: a keeper alone settles at the full-window mean; against an adversary
+   who posted the 20 lowest canonical slots, one keeper tick within `D` posts the other 10 and
+   settles at the full-window mean; with a 25-minute halt over the window it settles on the
+   next-print chain from `expiry + D`; ticks are idempotent; with the adversary's 20 slots on
+   chain and every post failing, the tick errors and does not settle, and the next working
+   tick settles the full window; a post reported failed whose candidate landed is benign. Run `tick` more often than `D`.
+
 ## Verified facts (checked 2026-10-28)
 
 - Pyth publishes both feeds (Hermes `/v2/price_feeds?query=XAU&asset_type=metal` and `XAG`):

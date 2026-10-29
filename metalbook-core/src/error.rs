@@ -41,6 +41,12 @@ pub enum CoreError {
     InvalidPrint = 13,
     /// A print that qualifies as no settlement candidate.
     PrintNotUsable = 14,
+    /// Account data of the wrong length, alignment, tag or version.
+    InvalidAccountData = 15,
+    /// A print's exponent is not the series' pinned exponent.
+    ExponentMismatch = 16,
+    /// A print's `conf / price` is above the series' bound.
+    ConfidenceTooWide = 17,
 }
 
 impl fmt::Display for CoreError {
@@ -61,6 +67,9 @@ impl fmt::Display for CoreError {
             Self::InvalidOracleParams => "oracle parameters out of range",
             Self::InvalidPrint => "price print is malformed",
             Self::PrintNotUsable => "print qualifies as no settlement candidate",
+            Self::InvalidAccountData => "account data has the wrong layout",
+            Self::ExponentMismatch => "print exponent is not the pinned exponent",
+            Self::ConfidenceTooWide => "print confidence above the bound",
         };
         f.write_str(text)
     }
@@ -81,7 +90,7 @@ mod tests {
     use super::CoreError;
     use std::string::ToString;
 
-    const ALL: [CoreError; 15] = [
+    const ALL: [CoreError; 18] = [
         CoreError::Overflow,
         CoreError::InvalidDiscriminant,
         CoreError::InvalidStrike,
@@ -97,6 +106,9 @@ mod tests {
         CoreError::InvalidOracleParams,
         CoreError::InvalidPrint,
         CoreError::PrintNotUsable,
+        CoreError::InvalidAccountData,
+        CoreError::ExponentMismatch,
+        CoreError::ConfidenceTooWide,
     ];
 
     #[test]

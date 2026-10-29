@@ -156,6 +156,9 @@ impl From<CoreError> for MetalbookError {
             CoreError::InvalidOracleParams => Self::InvalidConfig,
             CoreError::InvalidPrint => Self::InvalidPrint,
             CoreError::PrintNotUsable => Self::SampleOutsideWindow,
+            CoreError::InvalidAccountData => Self::InvalidAccountData,
+            CoreError::ExponentMismatch => Self::OracleExponentMismatch,
+            CoreError::ConfidenceTooWide => Self::OracleConfidenceTooWide,
         }
     }
 }
