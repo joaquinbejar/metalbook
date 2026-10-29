@@ -1,0 +1,19 @@
+[package]
+name = "metalbook-core"
+description = "metalbook domain and payoff math: no_std, allocation free, every rounding explicit"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "../README.md"
+keywords = ["options", "gold", "silver", "solana", "no-std"]
+categories = ["finance", "no-std"]
+
+[dependencies]
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true
