@@ -101,7 +101,7 @@ struct Series {
     total_written: u64, total_redeemed: u64,
     // settlement accumulator (same rules as varswap sampling)
     sample_sum: u128, filled_slots: u32,   // bitmap of the 30 window slots (4.2)
-    next_print: [i64; 5], next_print_px: [u64; 5],   // k smallest publish_times > window_end
+    next_print: [i64; 5], next_print_px: [u64; 5],   // canonical NextPrint chain (4.3 step 2)
     fallback_time: i64, fallback_px: u64,            // largest publish_time <= expiry seen
     window_changed: i64, fallback_changed: i64, // challenge delay D (4.3); NextPrint needs none
     settlement: SettlementPrice,
@@ -188,8 +188,9 @@ Each slot takes the **canonical** print for its boundary `t_i`: `prev_publish_ti
 publish_time <= t_i + slot_tolerance_s`, the same rule as varswap 4.1. The upper bound
 matters: without it the first print after a halt would be canonical for every slot in the
 gap and could reach `min_samples` alone (test: a print after a 20 min gap fills at most one
-slot). Same-second prints: see varswap 4.1's milestone 2 checks, which metalbook reuses. so a pusher has no choice of price within a
-slot and late backfill from Hermes is safe. If milestone 3 cannot prove uniqueness from Pyth
+slot). A pusher therefore has no choice of price within a slot, and late backfill from
+Hermes is safe. Same-second prints: see varswap 4.1's milestone 2 checks, which metalbook
+reuses. If milestone 3 cannot prove uniqueness from Pyth
 semantics, the fallback is first-write-wins with the residual selection risk quantified and
 accepted by you (codex review). Test: two valid, different prices for the same slot in both
 orders; only the canonical one is accepted.
