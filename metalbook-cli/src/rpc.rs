@@ -80,11 +80,12 @@ impl Rpc for Cluster {
     }
 }
 
-/// An RPC client error as a [`CliError::Rpc`]: its message with `url` (and any other URL)
-/// hidden, followed by the program logs of a failed preflight simulation.
+/// An RPC client error as a [`CliError::Rpc`]: its message followed by the program logs of a
+/// failed preflight simulation, the whole text redacted (a provider may echo its URL or key
+/// anywhere, logs included).
 #[must_use]
 pub fn client_error(e: &ClientError, url: &str) -> CliError {
-    let mut message = redact(&e.to_string(), url);
+    let mut message = e.to_string();
     if let ErrorKind::RpcError(RpcError::RpcResponseError {
         data: RpcResponseErrorData::SendTransactionPreflightFailure(simulation),
         ..
@@ -95,19 +96,44 @@ pub fn client_error(e: &ClientError, url: &str) -> CliError {
             message.push_str(line);
         }
     }
-    CliError::Rpc(message)
+    CliError::Rpc(redact(&message, url))
 }
 
-/// `text` with `url` and every other `http://` or `https://` URL replaced by a placeholder. The
-/// HTTP client may quote a normalized form of the URL (a trailing slash added, the query
-/// re-encoded), so exact replacement alone is not enough.
+/// Shortest URL path segment or query value treated as a possible secret.
+const MIN_SECRET_LEN: usize = 8;
+
+/// The parts of `url` that can carry a key: path segments and query values of at least
+/// [`MIN_SECRET_LEN`] characters (`/?api-key=KEY`, `/TOKEN/`), longest first.
+fn secrets_of(url: &str) -> Vec<&str> {
+    let after_scheme = url.split_once("://").map_or(url, |(_, rest)| rest);
+    // Drop the host: everything up to the first `/` or `?`.
+    let tail = after_scheme
+        .find(['/', '?'])
+        .and_then(|i| after_scheme.split_at_checked(i))
+        .map_or("", |(_, tail)| tail);
+    let mut parts: Vec<&str> = tail
+        .split(['/', '?', '&', '=', '#'])
+        .filter(|p| p.len() >= MIN_SECRET_LEN)
+        .collect();
+    parts.sort_by_key(|p| std::cmp::Reverse(p.len()));
+    parts
+}
+
+/// `text` with `url`, every other `http://` or `https://` URL, and every path segment or query
+/// value of `url` of 8 or more characters replaced by placeholders. The HTTP client may quote a
+/// normalized form
+/// of the URL (a trailing slash added, the query re-encoded), and a response may echo the key
+/// alone, so exact replacement of the URL is not enough.
 #[must_use]
 pub fn redact(text: &str, url: &str) -> String {
-    let text = if url.is_empty() {
+    let mut text = if url.is_empty() {
         text.to_owned()
     } else {
         text.replace(url, HIDDEN)
     };
+    for secret in secrets_of(url) {
+        text = text.replace(secret, "<redacted>");
+    }
     let mut out = String::with_capacity(text.len());
     let mut rest = text.as_str();
     while let Some(start) = ["http://", "https://"]

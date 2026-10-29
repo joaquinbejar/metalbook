@@ -552,7 +552,9 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    calendar; the cluster wrapper is tested with the client's mock sender (send, confirm,
    account decoding, a failed transaction), and preflight failures carry the program logs. The
    RPC URL never appears in an error, in `Debug` or in `--help` (providers put API keys in it,
-   and the HTTP client quotes the request URL in its errors, so every URL is redacted).
+   and the HTTP client quotes the request URL in its errors, so the whole message, preflight
+   logs included, is redacted: every URL, and every path segment or query value of the RPC URL
+   of 8 or more characters, since a response may echo the key alone).
    Keypair files are read once and never printed; errors name the path only.
 
    M7b-1 (Hermes source, no live calls in tests): `HermesSource` implements `PriceSource`

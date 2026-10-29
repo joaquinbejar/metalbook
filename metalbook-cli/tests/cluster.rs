@@ -92,6 +92,35 @@ fn preflight_failures_carry_the_program_logs() {
 }
 
 #[test]
+fn echoed_urls_and_keys_in_preflight_logs_are_redacted() {
+    let url = "https://rpc.example/v1/TOKENPATH123/?api-key=SECRETKEY99";
+    let simulation = serde_json::from_value(json!({
+        "err": null,
+        "logs": [
+            "Program log: provider https://rpc.example/v1/TOKENPATH123/?api-key=SECRETKEY99",
+            "Program log: key SECRETKEY99 and token TOKENPATH123 echoed bare",
+            "Program 4d failed: custom program error: 0x6c",
+        ],
+    }))
+    .unwrap();
+    let e = ClientError::from(ErrorKind::RpcError(RpcError::RpcResponseError {
+        code: -32002,
+        message: format!("Transaction simulation failed via {url}"),
+        data: RpcResponseErrorData::SendTransactionPreflightFailure(simulation),
+    }));
+    let err = client_error(&e, url);
+    let text = format!("{err} {err:?}");
+    for leak in ["SECRETKEY99", "TOKENPATH123", "rpc.example"] {
+        assert!(!text.contains(leak), "{leak} in {text}");
+    }
+    assert!(text.contains("custom program error: 0x6c"), "{text}");
+    assert!(
+        text.contains("key <redacted> and token <redacted> echoed bare"),
+        "{text}"
+    );
+}
+
+#[test]
 fn urls_are_redacted_in_any_form() {
     let url = "https://rpc.example?api-key=SECRET";
     for text in [
