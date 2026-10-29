@@ -26,11 +26,13 @@ the expiry flow.
 
 ## 2. Domain model
 
-`metalbook-core` (`no_std`), on optfix types.
+`metalbook-core` (`no_std`, integers only). It does not depend on optfix: the payoff and
+collateral math are exact integer formulas in USDC atoms, and optfix enters only for marks
+(milestone 5). Decided at the start of M1 (coordinator, 2026-10-29).
 
 ```rust
 #[repr(u8)] pub enum Underlying { Xau = 0, Xag = 1 }
-pub use optfix::OptionKind;                  // Call, Put
+#[repr(u8)] pub enum OptionKind { Call = 0, Put = 1 }   // own type, not optfix's
 pub struct UsdcAtoms(pub u64);               // 6 decimals
 pub struct StrikeUsd(pub u64);               // strike in USDC atoms per troy ounce
 pub struct Contracts(pub u64);               // number of option tokens (decimals 0)
@@ -315,6 +317,18 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    - the lint allowed explicitly in tests, benches and the entrypoint module (Pinocchio's
      `no_allocator!` expands to `assert!`);
    - `lint-control` run by `make pre-push`.
+
+   Delivered (M1): `metalbook-core` with the unit newtypes, `SeriesKey` and `SeriesTerms`
+   (cap rule and a representable maximum payout checked at construction), the payoff and
+   collateral formulas on `SeriesTerms`, the vault accounting `SeriesLedger`
+   (mint, close, expire, settle, redeem, claim; every call atomic, exact identity checked by
+   `check_invariants`) and the library error `CoreError` (`#[repr(u8)]`, mapped into
+   `MetalbookError` in M2). Rounding: collateral per contract is the exact maximum payoff
+   rounded up, the payout the exact payoff rounded down, both within one atom, and the
+   writer's residual is the difference, so the writer owns the dust. Property tests
+   (`tests/payoff_props.rs`, `tests/ledger_props.rs`, fixed seeds) check these bounds against
+   an independent `u128` reference over the whole `u64` domain, and that random mint/close
+   histories, settlement prices and claim orders empty the vault exactly.
 2. **Series, mint, close.** *Done when* LiteSVM tests and a negative test per rule in 3.3 pass.
 3. **Settlement.** Sampling, window mean, next print, fallback/void. *Done when* tests replay
    XAU fixtures captured from mainnet including a closed-market gap, and every branch of 4.3
