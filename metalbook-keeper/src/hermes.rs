@@ -129,7 +129,8 @@ impl HermesConfig {
 impl fmt::Debug for HermesConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("HermesConfig")
-            .field("base_url", &self.base_url)
+            // A gateway URL can embed the key (`https://gateway.example/<KEY>`).
+            .field("base_url", &scrub(&self.base_url, &self.api_key))
             .field("api_key", &"<redacted>")
             .field("auth", &self.auth)
             .finish()
@@ -306,17 +307,19 @@ pub fn parse_update(body: &str, feed: &[u8; 32]) -> Result<HermesUpdate, KeeperE
 /// Removes the API key from an error message, as a last line of defence: no error built in
 /// this module quotes a response, but a transport error could carry text from elsewhere.
 fn redact(e: KeeperError, key: &str) -> KeeperError {
-    let scrub = |msg: String| {
-        if key.is_empty() {
-            msg
-        } else {
-            msg.replace(key, "<redacted>")
-        }
-    };
     match e {
-        KeeperError::Source(msg) => KeeperError::Source(scrub(msg)),
-        KeeperError::Chain(msg) => KeeperError::Chain(scrub(msg)),
+        KeeperError::Source(msg) => KeeperError::Source(scrub(&msg, key)),
+        KeeperError::Chain(msg) => KeeperError::Chain(scrub(&msg, key)),
         other => other,
+    }
+}
+
+/// `text` with every occurrence of `key` replaced (unchanged when the key is empty).
+fn scrub(text: &str, key: &str) -> String {
+    if key.is_empty() {
+        text.to_owned()
+    } else {
+        text.replace(key, "<redacted>")
     }
 }
 
@@ -515,6 +518,32 @@ mod tests {
         );
         let shown = format!("{c:?}");
         assert!(!shown.contains("s3cr3t") && shown.contains("<redacted>"));
+    }
+
+    #[test]
+    fn test_a_key_embedded_in_the_gateway_url_is_redacted() {
+        const KEY: &str = "SYNTHETIC-HERMES-KEY";
+        const URL: &str = "https://gateway.example/SYNTHETIC-HERMES-KEY";
+        let c = HermesConfig::from_lookup(|n| match n {
+            HERMES_API_KEY_VAR => Some(KEY.to_string()),
+            HERMES_URL_VAR => Some(URL.to_string()),
+            _ => None,
+        })
+        .unwrap();
+        assert_eq!(c.base_url(), URL, "the URL itself is used unchanged");
+        let shown = format!("{c:?}");
+        assert!(!shown.contains(KEY), "{shown}");
+        assert!(
+            shown.contains("https://gateway.example/<redacted>"),
+            "{shown}"
+        );
+        // A transport error quoting the request URL is scrubbed the same way.
+        let e = redact(
+            KeeperError::Source(format!("GET failed: {URL}/v2/updates/price/latest")),
+            c.api_key(),
+        );
+        let shown = format!("{e} {e:?}");
+        assert!(!shown.contains(KEY), "{shown}");
     }
 
     #[test]

@@ -603,7 +603,7 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    next strictly advancing print, latest first-of-second print; `TapeSource` replays a tape)
    and transactions from a `Chain` trait. The Hermes API key is read only from
    `METALBOOK_HERMES_API_KEY` (`HermesConfig::from_env`), never from a file, and `Debug`
-   redacts it; the Hermes HTTP client and the Pyth receiver posting arrive with devnet
+   redacts it, including inside `base_url` (a gateway URL can embed the key); the Hermes HTTP client and the Pyth receiver posting arrive with devnet
    (M7b). The account layouts (`Config`, `Calendar`, `Series`, `Writer`, the loaders and the series'
    accessors) moved from the program into `metalbook_core::accounts`, as quotebook did with
    quotebook-core, so the program, the keeper and any SDK decode from one source; off-chain
