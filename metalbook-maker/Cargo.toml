@@ -10,6 +10,7 @@ publish = false
 
 [dependencies]
 metalbook-core = { workspace = true }
+optfix = { workspace = true }
 quotebook-core = { workspace = true }
 rust_decimal = { workspace = true }
 thiserror = { workspace = true }

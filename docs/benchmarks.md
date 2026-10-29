@@ -26,3 +26,7 @@ pyth-lite and the series' acceptance rule (`metalbook_core::accept_print`).
 | `close_position` | claimed position, rent to the writer | 356 |
 | `close_series` | vault and series closed, rent to the payer | 2880 |
 | `settle` | void | 2248 |
+
+Marks and quotes are computed off-chain (`metalbook-maker` with optfix's pricer), so no
+instruction prices an option and nothing here measures it. If marking moves on-chain,
+its CU is measured here; optfix's own SBF costs are in its `docs/benchmarks.md`.

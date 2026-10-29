@@ -504,7 +504,22 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    Tests use OptionStratLib 0.23 (dev-only) as the independent Black-Scholes reference:
    put and call-spread marks equal the reference legs, the spread stays within its payoff
    bounds and is monotone in spot (property test), and deep in the money it approaches the
-   discounted maximum. optfix becomes one more `VanillaPricer`.
+   discounted maximum.
+
+   optfix pricer (optfix#11 merged, git rev `204e266`): `OptfixPricer` implements
+   `VanillaPricer` over `optfix::price_and_greeks` (Q64.64). Decimal inputs are converted
+   rounding down (under one ulp each), outputs back with 18 places, the value rounded down.
+   Its error bound is optfix's price envelope (`price_error_bound`, rounded up) plus the
+   output rounding (`10^-18`) plus a bound on the input rounding taken at the sup of each
+   partial derivative over the ulp interval (with `D = 21 > e^3` bounding the discount
+   factors on optfix's domain; the time term uses `0.4 S D σ min(√ε, ε / (2√T'))`, so `T`
+   near zero is covered): about `8.7 × 10^-12` dollars per ounce at gold prices, dominated by
+   optfix's envelope. Tests: against 50-digit mpmath references (value within the bound,
+   greeks within `10^-12` relative); against OptionStratLib over 150 points as a wiring and
+   convention check (OSL reports vega per vol point and theta per day; it computes in f64,
+   off by up to about `2.3 × 10^-11 × max(S, K)`, and returns a gamma of 0 deep out of the
+   money, both confirmed against mpmath); marks equal OSL's within those tolerances; `T = 0`
+   is intrinsic; out-of-domain inputs are `MakerError::Pricer`.
 
    M5b (quotebook side): `metalbook-tests/tests/quotebook_demo.rs` runs the whole path in
    LiteSVM with quotebook-sdk and quotebook-core pinned at `578314c` (quotebook's M5 taker
@@ -513,10 +528,9 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    per base lot and a 0.01 USD tick; the maker marks the put with `metalbook-maker`, asks
    with `quote_atoms` and `quote_terms`, signs; a taker buys 2 through the ed25519 precompile
    and `settle`, every quotebook instruction built by the SDK; the series settles from Pyth
-   prints and the taker redeems 100 USD per token; the vault empties. **Remaining for the
-   done-when:** the price comes from OptionStratLib as a stand-in `VanillaPricer` because
-   optfix has no Black-Scholes kernel yet (optfix main is at its M3, exp and ln); swapping
-   in optfix is one `VanillaPricer` implementation.
+   prints and the taker redeems 100 USD per token; the vault empties. The maker prices with
+   `OptfixPricer`, which completes the milestone 5 done-when (OptionStratLib was the
+   stand-in until optfix#11).
 6. **Benchmarks and docs.** *Done when* `docs/benchmarks.md` lists CU for every instruction and
    README explains the capped call and the market-hours rules.
 
@@ -652,7 +666,7 @@ whenever it is added or touched.
 | `pinocchio-system` | 0.7.0 (0.6.1 used) | `0.6`, decided exception below |
 | `pinocchio-token` | 0.7.0 | `0.7`, see conflict below |
 | `pinocchio-associated-token-account` | 0.4.0 | `0.4`, see conflict below |
-| `optfix` | unpublished | git, pinned `rev` |
+| `optfix` (maker) | unpublished | git, `rev = 204e266` (optfix#11, Black-Scholes-Merton) |
 | `pyth-lite` (varswap) | unpublished | git, `rev = 5cf95aa` |
 | `quotebook-core`, `quotebook-sdk` | unpublished | git, `rev = 578314c` (quotebook M5 SDK) |
 | `rust_decimal` (maker) | 1.43.0 | `1.43` |

@@ -490,3 +490,269 @@ proptest! {
         }
     }
 }
+
+// optfix, the production pricer. OptionStratLib checks the wiring (kinds, units, greek
+// conventions: OSL reports vega per vol point and theta per day, optfix per 1.00 of volatility
+// and per calendar year), within OSL's own measured deviation: it computes in f64 (values off
+// by up to about 2.3e-11 × max(S, K) over the grid below) and returns a gamma of 0 deep out of
+// the money. Accuracy is pinned separately against 50-digit references.
+
+fn grid() -> Vec<(VanillaKind, VanillaInputs)> {
+    let mut out = Vec::new();
+    for kind in [VanillaKind::Call, VanillaKind::Put] {
+        for (spot, strike) in [
+            (dec!(2400), dec!(2400)),
+            (dec!(2400), dec!(2450)),
+            (dec!(2400), dec!(2100)),
+            (dec!(31.25), dec!(30)),
+            (dec!(31.25), dec!(36.5)),
+        ] {
+            for days in [1, 7, 30, 91, 365] {
+                for (vol, rate, carry) in [
+                    (dec!(0.18), dec!(0.04), dec!(0)),
+                    (dec!(0.32), dec!(0.05), dec!(0.01)),
+                    (dec!(0.10), dec!(0), dec!(0)),
+                ] {
+                    let years = Decimal::from(days * 86_400) / Decimal::from(SECONDS_PER_YEAR);
+                    out.push((
+                        kind,
+                        VanillaInputs {
+                            spot,
+                            strike,
+                            years,
+                            vol,
+                            rate,
+                            carry,
+                        },
+                    ));
+                }
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn test_optfix_matches_optionstratlib_within_its_deviation() {
+    let points = grid();
+    assert_eq!(points.len(), 150);
+    for (kind, i) in points {
+        let a = metalbook_maker::OptfixPricer.price(kind, &i).unwrap();
+        let b = Osl.price(kind, &i).unwrap();
+        let scale = i.spot.max(i.strike);
+        // OSL's measured deviations over this grid, with a 2x to 4x margin.
+        assert!(
+            (a.value - b.value).abs() <= a.error_bound + dec!(0.0000000001) * scale,
+            "{kind:?} {i:?}: {a:?} {b:?}"
+        );
+        assert!(
+            (a.delta - b.delta).abs() <= dec!(0.0000000001),
+            "{kind:?} {i:?}"
+        );
+        assert!(
+            (a.gamma - b.gamma).abs() * scale <= dec!(0.00001),
+            "{kind:?} {i:?}"
+        );
+        assert!(
+            (a.vega / dec!(100) - b.vega).abs() <= dec!(0.000000001) * scale,
+            "{kind:?} {i:?}"
+        );
+        assert!(
+            (a.theta / dec!(365) - b.theta).abs() <= dec!(0.000000001) * scale,
+            "{kind:?} {i:?}"
+        );
+        // At metal prices the bound is optfix's envelope plus noise: far below a USDC atom.
+        assert!(a.error_bound > Decimal::ZERO && a.error_bound < dec!(0.0000001));
+    }
+}
+
+/// 50-digit Black-Scholes-Merton references (mpmath, `mp.dps = 50`, rounded to 20 significant
+/// digits): value, delta, gamma, vega per 1.00 of volatility, theta `dV/dt` per year, with
+/// `T = days × 86_400 / 31_536_000`, `d1 = (ln(S/K) + (r − q + σ²/2) T) / (σ√T)`.
+#[allow(clippy::type_complexity)]
+const REFERENCES: [(
+    VanillaKind,
+    Decimal,
+    Decimal,
+    i64,
+    Decimal,
+    Decimal,
+    Decimal,
+    [Decimal; 5],
+); 4] = [
+    (
+        VanillaKind::Call,
+        dec!(2400),
+        dec!(2450),
+        7,
+        dec!(0.18),
+        dec!(0.04),
+        dec!(0.0),
+        [
+            dec!(7.309022630464420632),
+            dec!(0.21653791693961158376),
+            dec!(0.0049042613377056468508),
+            dec!(97.515526258993157765),
+            dec!(-478.12171306497345416),
+        ],
+    ),
+    (
+        VanillaKind::Put,
+        dec!(2400),
+        dec!(2100),
+        30,
+        dec!(0.32),
+        dec!(0.05),
+        dec!(0.01),
+        [
+            dec!(6.1360422655087394197),
+            dec!(-0.062067413380536141498),
+            dec!(0.00055544617061396253244),
+            dec!(84.147812192519649846),
+            dec!(-157.54246727029801181),
+        ],
+    ),
+    (
+        VanillaKind::Call,
+        dec!(31.25),
+        dec!(36.5),
+        91,
+        dec!(0.1),
+        dec!(0.0),
+        dec!(0.0),
+        [
+            dec!(0.00043432001118649478186),
+            dec!(0.0010172293988871140481),
+            dec!(0.0021919897907549722097),
+            dec!(0.05336875828304325532),
+            dec!(-0.010703075150170762743),
+        ],
+    ),
+    (
+        VanillaKind::Put,
+        dec!(31.25),
+        dec!(30),
+        365,
+        dec!(0.18),
+        dec!(0.04),
+        dec!(0.0),
+        [
+            dec!(1.1537083313105301015),
+            dec!(-0.29493960441297275795),
+            dec!(0.061333692514934873754),
+            dec!(10.781313137390895777),
+            dec!(-0.55549534359654346845),
+        ],
+    ),
+];
+
+#[test]
+fn test_optfix_is_within_its_bound_of_high_precision_references() {
+    for (kind, spot, strike, days, vol, rate, carry, want) in REFERENCES {
+        let i = VanillaInputs {
+            spot,
+            strike,
+            years: Decimal::from(days * 86_400) / Decimal::from(SECONDS_PER_YEAR),
+            vol,
+            rate,
+            carry,
+        };
+        let got = metalbook_maker::OptfixPricer.price(kind, &i).unwrap();
+        // The reference is rounded to 20 digits: allow one unit there on top of the bound.
+        let value_tol =
+            got.error_bound + dec!(0.0000000000000000001) * want[0].abs().max(Decimal::ONE);
+        assert!(
+            (got.value - want[0]).abs() <= value_tol,
+            "{kind:?} {days}: {got:?}"
+        );
+        // Greeks: optfix's envelopes are about 1e-13 relative; 1e-12 relative plus 1e-17.
+        for (g, w) in [got.delta, got.gamma, got.vega, got.theta]
+            .into_iter()
+            .zip(&want[1..])
+        {
+            let tol = dec!(0.000000000001) * w.abs() + dec!(0.00000000000000001);
+            assert!((g - w).abs() <= tol, "{kind:?} {days}: {g} vs {w}");
+        }
+    }
+}
+
+#[test]
+fn test_optfix_marks_match_the_reference_marks() {
+    for (t, spot, days) in [
+        (terms(OptionKind::Put, 4_000, 0, 50_000), dec!(3950), 30),
+        (terms(OptionKind::Call, 4_000, 4_400, 1_000), dec!(4100), 14),
+    ] {
+        let m = market(spot, days);
+        let a = mark(&metalbook_maker::OptfixPricer, &t, &m, WINDOW_S).unwrap();
+        let b = mark(&Osl, &t, &m, WINDOW_S).unwrap();
+        // OSL's deviation (about 2.3e-11 × max(S, K) per ounce) times the ounces, with margin.
+        let ounces = Decimal::from(t.multiplier().get()) / dec!(1000);
+        let tol = a.error_bound + dec!(0.0000000001) * dec!(4400) * ounces;
+        assert!((a.value - b.value).abs() <= tol, "{a:?} {b:?}");
+        assert!((a.delta - b.delta).abs() <= dec!(0.0000001));
+        assert_eq!(a.max_payout, b.max_payout);
+    }
+}
+
+#[test]
+fn test_optfix_near_expiry_and_out_of_domain() {
+    let base = VanillaInputs {
+        spot: dec!(2400),
+        strike: dec!(2350),
+        years: Decimal::ZERO,
+        vol: dec!(0.18),
+        rate: dec!(0.04),
+        carry: dec!(0),
+    };
+    let p = metalbook_maker::OptfixPricer;
+    // T = 0 is the intrinsic value, up to the output rounding.
+    let call = p.price(VanillaKind::Call, &base).unwrap();
+    assert!((call.value - dec!(50)).abs() <= call.error_bound);
+    assert_eq!(
+        p.price(VanillaKind::Put, &base).unwrap().value,
+        Decimal::ZERO
+    );
+    // One second before expiry: the √ε form of the time term keeps the bound honest and small.
+    let one_second = VanillaInputs {
+        years: Decimal::ONE / Decimal::from(SECONDS_PER_YEAR),
+        ..base
+    };
+    let v = p.price(VanillaKind::Call, &one_second).unwrap();
+    assert!(v.value >= dec!(50) - v.error_bound && v.error_bound < dec!(0.000001));
+    // optfix's domain: S/K in [0.05, 20], volatility in [0.005, 5], rates in [-0.1, 0.5].
+    for bad in [
+        VanillaInputs {
+            strike: dec!(100000),
+            ..one_second
+        },
+        VanillaInputs {
+            vol: dec!(0.001),
+            ..one_second
+        },
+        VanillaInputs {
+            vol: dec!(6),
+            ..one_second
+        },
+        VanillaInputs {
+            rate: dec!(0.6),
+            ..one_second
+        },
+        VanillaInputs {
+            carry: dec!(-0.2),
+            ..one_second
+        },
+        VanillaInputs {
+            years: dec!(31),
+            ..one_second
+        },
+        VanillaInputs {
+            spot: dec!(-1),
+            ..one_second
+        },
+    ] {
+        assert!(
+            matches!(p.price(VanillaKind::Put, &bad), Err(MakerError::Pricer(_))),
+            "{bad:?}"
+        );
+    }
+}

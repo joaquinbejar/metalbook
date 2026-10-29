@@ -48,7 +48,7 @@ pub struct VanillaValue {
     pub error_bound: Decimal,
 }
 
-/// Prices European vanillas. optfix will implement it; tests use OptionStratLib.
+/// Prices European vanillas: [`crate::OptfixPricer`]; tests also use OptionStratLib.
 pub trait VanillaPricer {
     /// Value and greeks of one vanilla.
     ///
