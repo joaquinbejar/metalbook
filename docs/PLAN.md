@@ -535,6 +535,28 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    `metalbook_core::accounts`; LiteSVM tests check each builder byte for byte against the
    harness's independent encodings and run a full lifecycle using only the SDK.
 
+   Admin CLI (`metalbook-cli`, binary `metalbook-admin`): `init-config`, `set-config`,
+   `set-calendar` and `create-series` built by `metalbook-sdk`, signed with a Solana keypair
+   file (`--keypair` or `METALBOOK_KEYPAIR`) and sent over JSON-RPC (`--url` or
+   `SOLANA_URL`) through `solana-rpc-client`, plus `show-config`, `show-calendar`, `show-series` (decoded, as JSON) and
+   an offline `series-address`; `--dry-run` prints the instruction instead of sending it. The
+   config parameters are a JSON file (`metalbook-cli/devnet-params.json` holds the runbook
+   values) in the shape `show-config` prints, so a live config can be edited and resent.
+   Dollar amounts are parsed exactly to USDC atoms (at most 6 decimals, no rounding). The RPC
+   client is `solana-rpc-client` 4.3 (cross-repo decision, as quotebook: 4.4.0 is the latest
+   but pulls agave 4.4 crates LiteSVM 0.18.1 does not build with; 4.3.2 is the newest that
+   resolves), off-chain only, behind an `Rpc` trait so the commands also run on LiteSVM: a
+   LiteSVM test (`metalbook-tests/tests/cli.rs`) runs them against the program, from
+   `init_config` with the devnet file to a listed series and an admin handover, with the
+   program's error codes for a non-authority, an off-grid strike and an expiry outside the
+   calendar; the cluster wrapper is tested with the client's mock sender (send, confirm,
+   account decoding, a failed transaction), and preflight failures carry the program logs. The
+   RPC URL never appears in an error, in `Debug` or in `--help` (providers put API keys in it,
+   and the HTTP client quotes the request URL in its errors, so the whole message, preflight
+   logs included, is redacted: every URL, and every path segment or query value of the RPC URL
+   of 8 or more characters, since a response may echo the key alone).
+   Keypair files are read once and never printed; errors name the path only.
+
    M7b-1 (Hermes source, no live calls in tests): `HermesSource` implements `PriceSource`
    over Hermes `GET /v2/updates/price/{t}`, which returns the **first** update with
    `publish_time >= t` (verified in the Hermes source, `RequestTime::FirstAfter`), and
@@ -638,9 +660,14 @@ whenever it is added or touched.
 | `optionstratlib` (maker, dev) | 0.23.0 | `0.23` |
 | `rust_decimal_macros` (maker, dev) | 1.40.0 | `1.40` |
 | `ureq` (keeper, rustls only) | 3.5.0 | `3.5` |
-| `serde` (keeper) | 1.0.229 | `1.0` |
-| `serde_json` (keeper) | 1.0.154 | `1.0` |
-| `base64` (keeper) | 0.23.1 | `0.23` |
+| `serde` (keeper, cli) | 1.0.229 | `1.0` |
+| `serde_json` (keeper, cli) | 1.0.154 | `1.0` |
+| `base64` (keeper; cli dev) | 0.23.1 | `0.23` |
+| `clap` (cli) | 4.6.7 | `4.6` |
+| `solana-rpc-client`, `solana-rpc-client-api` (cli) | 4.4.0 (4.3.2 used) | `~4.3`: newest that resolves with the LiteSVM pins, cross-repo decision; tilde so `cargo update` stays on 4.3 |
+| `solana-commitment-config` (cli) | 3.1.1 | `3.1` |
+| `solana-transaction`, `solana-keypair`, `solana-signer` (cli, dev) | 6.0.0, 4.0.0, 4.0.0 | `4.3`, `3.1`, `3.0`: the LiteSVM generation, same exception |
+| `solana-hash` (cli, dev) | 4.7.0, pinned by LiteSVM (`~4.6`) | `4.6` |
 | `litesvm-token` (dev) | 0.18.1 | `0.18` |
 | `solana-account` (dev) | pinned by LiteSVM | `4.3` |
 | `solana-clock` (dev) | pinned by LiteSVM (`~3.2.0`) | `3.2` |

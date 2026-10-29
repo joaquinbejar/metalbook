@@ -37,6 +37,10 @@ export SOLANA_URL=https://api.devnet.solana.com
 export METALBOOK_UPGRADE_AUTHORITY=~/keys/metalbook-devnet-authority.json   # outside the repo
 export METALBOOK_PROGRAM_KEYPAIR=~/keys/metalbook-devnet-program.json       # outside the repo
 export METALBOOK_HERMES_API_KEY=...                                        # never in a file
+# metalbook-admin (after step 2): the program id and the signer of each command.
+export METALBOOK_PROGRAM_ID=<PROGRAM_ID>
+export METALBOOK_KEYPAIR="$METALBOOK_UPGRADE_AUTHORITY"                    # admin steps
+alias metalbook-admin='cargo run -q -p metalbook-cli --bin metalbook-admin --'   # reads SOLANA_URL
 # export METALBOOK_HERMES_URL=https://hermes.pyth.network                  # default
 # export METALBOOK_HERMES_AUTH=bearer                                      # default; or header:<name>
 ```
@@ -93,19 +97,33 @@ devnet values:
 | `challenge_delay_s` (`D`) | 600 |
 | `fallback_lookback_s`, `hard_deadline_s` | 86_400, 604_800 (devnet may shorten the hard deadline to test the void path) |
 
-Build it with `metalbook_sdk::ix::init_config(program_id, admin, usdc_mint, &ConfigParams { .. })`
-and send it with any Solana client; `metalbook_sdk::decode::config` reads the result back.
+These values are committed as `metalbook-cli/devnet-params.json` (edit the hard deadline there
+first if the void path is to be tested). Signed by the upgrade authority:
+
+```sh
+metalbook-admin init-config --usdc-mint <USDC_MINT> --params metalbook-cli/devnet-params.json --dry-run
+metalbook-admin init-config --usdc-mint <USDC_MINT> --params metalbook-cli/devnet-params.json
+metalbook-admin show-config        # the same parameters back, plus admin and mint
+```
+
+`--dry-run` prints the accounts and data without signing. Later changes go through
+`show-config`, editing its `params` into a file, and `set-config --params <file>` (add
+`--new-admin <KEY>` to hand admin over).
 
 ### 4. Calendar and a series
 
-- `set_calendar` (tag 2), as admin, for XAU with the chosen expiries (strictly increasing, up to 64).
+- `set_calendar` (tag 2), as admin, for XAU with the chosen expiries (Unix seconds, strictly
+  increasing, up to 64; the list replaces the calendar):
+  `metalbook-admin set-calendar --underlying xau --expiries <T1>,<T2>`, then
+  `metalbook-admin show-calendar --underlying xau`.
 - `create_series` (tag 3), as any payer: for example an XAU put with a strike near spot on the 5
-  USD tick, expiry from the calendar at least an hour away, and multiplier 1_000. This creates
-  the series, its long mint and its USDC vault.
-- Mint test USDC to a writer and have the writer `mint` (tag 4) a few contracts.
-
-`metalbook_sdk::ix::{set_calendar, create_series, mint}`; series addresses from
-`metalbook_sdk::pda::series(&program_id, &SeriesSpec { .. })`.
+  USD tick, expiry from the calendar at least an hour away; the multiplier defaults to the
+  config's (1_000 for XAU). This creates the series, its long mint and its USDC vault:
+  `metalbook-admin create-series --underlying xau --kind put --strike 2400 --expiry <T1>`
+  prints the series address, `metalbook-admin show-series <SERIES>` reads it back. A call
+  takes `--cap <USD>` on the cap grid.
+- Mint test USDC to a writer and have the writer `mint` (tag 4) a few contracts
+  (`metalbook_sdk::ix::mint` with any Solana client; the CLI covers only admin and listing).
 
 ### 5. Run the keeper
 
@@ -149,9 +167,10 @@ Every transaction signature goes into the log below.
 
 ## What is missing
 
-1. ~~Instruction builders~~: done, `metalbook-sdk` (every instruction, PDA helpers, decoders).
-   Still missing: a small CLI around it for the admin steps (any Solana client can send the
-   SDK's instructions meanwhile).
+1. ~~Instruction builders and an admin CLI~~: done, `metalbook-sdk` (every instruction, PDA
+   helpers, decoders) and `metalbook-admin` (`metalbook-cli`) for steps 3 and 4. Writer and
+   holder steps (`mint`, `close`, `redeem`, `claim_writer`, the closes) use the SDK with any
+   Solana client.
 2. **M7b-2: Pyth receiver posting** (Wormhole encoded VAA, `verify_encoded_vaa_v1`, receiver
    `post_update` for a `Full` update). Blocked on the Hermes key, needed to record a
    guardian-signed update for tests.

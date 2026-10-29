@@ -8,10 +8,11 @@ collateralized and settled in USDC from Pyth prices.
 **Status:** implemented and reviewed: the domain math, settlement rules and account layouts
 (`metalbook-core`); the on-chain program (`metalbook-program`) for listing, writing,
 settlement from Pyth, redemption, writer claims and rent recovery; the pricing adapter
-(`metalbook-maker`) with a LiteSVM demo trading a long token through QuoteBook; and the
-settlement keeper (`metalbook-keeper`). Open: optfix as the vanilla pricer (the demo uses
-OptionStratLib as a stand-in until optfix's Black-Scholes kernel ships), the live Hermes
-client and Pyth receiver posting, and devnet ([`docs/PLAN.md`](docs/PLAN.md) milestones 5 and 7).
+(`metalbook-maker`) with a LiteSVM demo trading a long token through QuoteBook; the
+settlement keeper (`metalbook-keeper`) with its Hermes price source; and the admin CLI
+(`metalbook-cli`). Open: optfix as the vanilla pricer (the demo uses
+OptionStratLib as a stand-in until optfix's Black-Scholes kernel ships), Pyth receiver posting,
+the keeper binary, and devnet ([`docs/PLAN.md`](docs/PLAN.md) milestones 5 and 7).
 Not audited; not deployed.
 
 ## Contents
@@ -61,6 +62,7 @@ writer and the vault empties exactly.
 | `metalbook-program` | Pinocchio 0.11 program (`cdylib`). Validates every account, restores the core types from account data (rejecting unreachable states), applies the transition, writes state, then makes the token CPIs. |
 | `metalbook-tests` | LiteSVM tests of the program and the deterministic CU benchmark (`docs/benchmarks.md`). |
 | `metalbook-sdk` | Client SDK: a builder for every instruction, PDA helpers and account decoders over the shared layouts. |
+| `metalbook-cli` | `metalbook-admin`, the thin admin CLI over the SDK: `init-config`, `set-config`, `set-calendar`, `create-series` signed with a keypair file and sent through `solana-rpc-client`, `show-*` reads as JSON, `--dry-run`. Parameters file for devnet: `metalbook-cli/devnet-params.json`. |
 | `metalbook-maker` | Off-chain pricing adapter (milestone 5a): payoff-aware marks behind a `VanillaPricer` trait (a put; a capped call as `C(K) − C(cap)`, error bounds summed), two-sided quotes rounded toward the maker, and quotebook quote terms. |
 | `metalbook-keeper` | Off-chain settlement keeper (milestone 7a): posts every eligible canonical slot, chain link and the latest eligible fallback within `D`, then settles; `PriceSource` and `Chain` traits; `HermesSource` reads Pyth prints from Hermes (key only from `METALBOOK_HERMES_API_KEY`; auth scheme unverified until the first live call). |
 | `lint-control` | Failing control proving that the workspace lints reject panicking macros (shared with optfix, quotebook and varswap). |
