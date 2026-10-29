@@ -94,6 +94,9 @@ pub mod code {
     pub const SETTLEMENT_NOT_READY: u32 = 141;
     pub const ORACLE_EXPONENT_MISMATCH: u32 = 142;
     pub const INVALID_PRINT: u32 = 143;
+    pub const SERIES_NOT_SETTLED: u32 = 115;
+    pub const INSUFFICIENT_LONG_TOKENS: u32 = 118;
+    pub const ALREADY_CLAIMED: u32 = 144;
 }
 
 pub const USD: u64 = 1_000_000;
@@ -363,13 +366,15 @@ impl Env {
 
     /// [`Env::bare`] plus the config and both calendars.
     pub fn new() -> Self {
+        Self::with_params(Params::default_params())
+    }
+
+    /// [`Env::new`] with other config parameters.
+    pub fn with_params(params: Params) -> Self {
         let mut env = Self::bare();
         let admin = env.admin.insecure_clone();
-        env.send(
-            &[env.ix_init_config(&admin.pubkey(), Params::default_params())],
-            &[&admin],
-        )
-        .unwrap();
+        env.send(&[env.ix_init_config(&admin.pubkey(), params)], &[&admin])
+            .unwrap();
         env.send(
             &[env.ix_set_calendar(&admin.pubkey(), XAU, &[EXPIRY, EXPIRY_2])],
             &[&admin],
@@ -619,6 +624,67 @@ impl Env {
         self.send(&[ix], &[&payer])
     }
 
+    /// `redeem` (tag 8) with the holder's own accounts.
+    pub fn ix_redeem(&self, holder: &Address, args: SeriesArgs, n: u64) -> Instruction {
+        let series = args.series();
+        let long_mint = args.long_mint();
+        let mut data = vec![8u8];
+        data.extend_from_slice(&n.to_le_bytes());
+        Instruction {
+            program_id: PROGRAM_ID,
+            accounts: vec![
+                meta(*holder, true, false),
+                meta(series, false, true),
+                meta(ata(holder, &long_mint), false, true),
+                meta(ata(holder, &self.usdc), false, true),
+                meta(ata(&series, &self.usdc), false, true),
+                meta(self.usdc, false, false),
+                meta(long_mint, false, true),
+                meta(TOKEN_PROGRAM, false, false),
+            ],
+            data,
+        }
+    }
+
+    /// `claim_writer` (tag 9) with the writer's own accounts.
+    pub fn ix_claim(&self, writer: &Address, args: SeriesArgs) -> Instruction {
+        let series = args.series();
+        Instruction {
+            program_id: PROGRAM_ID,
+            accounts: vec![
+                meta(*writer, true, false),
+                meta(series, false, true),
+                meta(position_address(&series, writer), false, true),
+                meta(ata(writer, &self.usdc), false, true),
+                meta(ata(&series, &self.usdc), false, true),
+                meta(self.usdc, false, false),
+                meta(TOKEN_PROGRAM, false, false),
+            ],
+            data: vec![9],
+        }
+    }
+
+    /// Fills the whole window of `args` with canonical prints at the raw mantissas `prices`
+    /// (one per slot, the feed and exponent of the underlying) and settles at expiry.
+    pub fn settle_with_window(&mut self, args: SeriesArgs, prices: &[i64; 30]) {
+        let series = args.series();
+        self.set_time(args.expiry + 10);
+        let start = args.expiry - WINDOW_S;
+        for (i, &px) in prices.iter().enumerate() {
+            let b = start + i as i64 * SLOT_S;
+            let pu = self.price_update(PriceUpdateArgs::for_underlying(
+                args.underlying,
+                px,
+                b + 1,
+                b - 1,
+            ));
+            let payer = self.admin.insecure_clone();
+            self.send(&[self.ix_sample(&series, &pu)], &[&payer])
+                .unwrap();
+        }
+        self.settle(&series).unwrap();
+    }
+
     pub fn ix_mint(&self, writer: &Address, args: SeriesArgs, n: u64) -> Instruction {
         self.ix_position(4, writer, args, n)
     }
@@ -712,6 +778,16 @@ impl PriceUpdateArgs {
             publish,
             prev,
         }
+    }
+
+    /// A `Full` print for `underlying`'s feed and pinned exponent.
+    pub fn for_underlying(underlying: u8, price: i64, publish: i64, prev: i64) -> Self {
+        let mut a = Self::xau(price, publish, prev);
+        if underlying == XAG {
+            a.feed_id = FEED_XAG;
+            a.exponent = i32::from(EXPO_XAG);
+        }
+        a
     }
 
     pub fn encode(&self) -> Vec<u8> {

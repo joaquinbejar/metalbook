@@ -189,7 +189,7 @@ pub fn close(program_id: &Address, accounts: &mut [AccountView], data: &[u8]) ->
     })
 }
 
-fn read_contracts(data: &[u8]) -> Result<Contracts, MetalbookError> {
+pub(crate) fn read_contracts(data: &[u8]) -> Result<Contracts, MetalbookError> {
     let mut r = Reader::new(data);
     let n = r.u64()?;
     r.finish()?;
@@ -245,7 +245,7 @@ pub fn load_series(program_id: &Address, series: &AccountView) -> Result<Series,
 }
 
 /// The vault, mints and token program are the ones the series recorded at creation.
-fn check_series_accounts(
+pub(crate) fn check_series_accounts(
     s: &Series,
     vault: &AccountView,
     usdc_mint: &AccountView,
@@ -273,7 +273,7 @@ fn check_series_accounts(
 }
 
 /// Loads a position and checks its owner, layout, PDA, series and wallet.
-fn load_position<'a>(
+pub(crate) fn load_position<'a>(
     program_id: &Address,
     address: &Address,
     bytes: &'a mut [u8],
@@ -294,7 +294,7 @@ fn load_position<'a>(
 }
 
 /// Runs `f` with the series PDA's signer seeds.
-fn with_series_signer<F>(s: &Series, f: F) -> ProgramResult
+pub(crate) fn with_series_signer<F>(s: &Series, f: F) -> ProgramResult
 where
     F: FnOnce(&[Signer]) -> ProgramResult,
 {
