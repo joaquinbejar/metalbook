@@ -103,7 +103,7 @@ struct Series {
     sample_sum: u128, filled_slots: u32,   // bitmap of the 30 window slots (4.2)
     next_print: [i64; 5], next_print_px: [u64; 5],   // canonical NextPrint chain (4.3 step 2)
     fallback_time: i64, fallback_px: u64,            // largest publish_time <= expiry seen
-    window_changed: i64, fallback_changed: i64, // challenge delay D (4.3); NextPrint needs none
+    window_changed: i64, next_print_changed: i64, fallback_changed: i64, // challenge delay D (4.3)
     settlement: SettlementPrice,
     mark_vol: Fixed, mark_vol_time: i64,   // keeper-set, display and quoting only
 }
@@ -190,10 +190,17 @@ matters: without it the first print after a halt would be canonical for every sl
 gap and could reach `min_samples` alone (test: a print after a 20 min gap fills at most one
 slot). A pusher therefore has no choice of price within a slot, and late backfill from
 Hermes is safe. Same-second prints: see varswap 4.1's milestone 2 checks, which metalbook
-reuses. If milestone 3 cannot prove uniqueness from Pyth
-semantics, the fallback is first-write-wins with the residual selection risk quantified and
-accepted by you (codex review). Test: two valid, different prices for the same slot in both
-orders; only the canonical one is accepted.
+reuses.
+
+Uniqueness is not proven yet; it is a milestone 3 gate. Pyth documents the rule
+(`pythnet_sdk/src/messages.rs`, `PriceFeedMessage::prev_publish_time`) but also two
+exceptions: during the message-sending migration some updates may not reach other chains, so
+a moment can have no canonical update; and `prev_publish_time` may equal `publish_time` when
+the aggregation was unsuccessful. Milestone 3 checks the rule against mainnet fixtures
+captured from Hermes (including same-second and failed-aggregation messages) before relying
+on it. If uniqueness cannot be shown, the fallback is first-write-wins with the residual
+selection risk quantified and accepted by you (codex review). Test: two valid, different
+prices for the same slot in both orders; only the canonical one is accepted.
 
 ### 4.3 Missing or stale oracle at expiry
 
@@ -201,7 +208,7 @@ The program cannot tell that a print was "the first" or "the last" one, so every
 is monotonically improvable until finalization: anyone may replace a stored candidate with a
 better one (3.3). Improvement needs time, so every step that can settle on a subset waits a
 challenge delay `D` (proposed 10 min) after the last change to its own candidates (one
-timestamp per kind: `window_changed`, `fallback_changed` (NextPrint is canonical), so a stream
+timestamp per kind: `window_changed`, `next_print_changed`, `fallback_changed`, so a stream
 of later fallback prints cannot delay a Window or NextPrint settle); otherwise an attacker could backfill a favorable
 subset from Hermes and call `settle` in the same transaction. Each step also has its own
 earliest settle time, so a short halt waits for the market to reopen instead of settling at
@@ -210,13 +217,25 @@ a partial or stale price:
 1. `Window`: immediately from `window_end` if all 30 slots are filled; otherwise from
    `max(window_end, window_changed) + D` with at least `min_samples` slots: mean of
    the window. (Backfilled slots can still arrive after `window_end`, see 4.2.)
-2. `NextPrint`: canonical and chained, so there is no choice and no challenge delay.
-   Candidate 1 satisfies `prev_publish_time <= window_end < publish_time`; candidate `j + 1`
-   satisfies `prev_publish_time == publish_time(candidate j)`. Once `k = 5` are stored:
-   their mean. One print cannot be stored twice, because the chain only advances.
-3. From `max(hard_deadline, last change of the candidates used) + D` only (hard deadline
-   proposed 7 days after expiry): `NextPrint` with 1 to `k − 1`
-   candidates (their mean), else the partial window mean if at least one slot is filled.
+2. `NextPrint`: canonical and chained, so there is no choice and, with all `k` links, no
+   challenge delay. The "next print" after a time `t` is the canonical update that strictly
+   advances past it: `prev_publish_time <= t < publish_time`. Candidate 1 is the next print
+   after `window_end`; candidate `j + 1` is the next print after `publish_time(candidate j)`,
+   so it must satisfy both `prev_publish_time == publish_time(candidate j)` and
+   `publish_time > publish_time(candidate j)`. The second condition is required: Pyth allows
+   `prev_publish_time == publish_time` for an unsuccessful aggregation (see 4.2), and without
+   it one such non-advancing update would match the next link again and again, fill all `k`
+   and settle at once. Every stored link updates `next_print_changed`. Once `k = 5` are
+   stored: their mean. If Pyth skips sending an update (4.2), the chain stalls and step 3
+   applies. Planned tests: replaying the same non-advancing print (`prev_publish_time ==
+   publish_time == publish_time(candidate j)`) is rejected and the chain stays at `j`; two
+   distinct messages with the same `publish_time` and different prices, submitted in both
+   orders, extend the chain only with the one whose `prev_publish_time` equals the last link.
+3. From the hard deadline only (proposed 7 days after expiry), each with its own delay: a
+   partial `NextPrint` chain with 1 to `k − 1` links (their mean) from
+   `max(hard_deadline, next_print_changed) + D`, so honest keepers can still extend a chain
+   someone stopped early; else the partial window mean, if at least one slot is filled, from
+   `max(hard_deadline, window_changed) + D`.
 4. `Fallback`, from `max(hard_deadline, fallback_changed) + D`: the latest submitted print in `[expiry − X, expiry]`
    (proposed `X = 24 h`).
 5. `void_series` only if all of these are empty at the hard deadline: collateral goes back
