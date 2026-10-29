@@ -103,6 +103,7 @@ struct Series {
     sample_sum: u128, filled_slots: u32,   // bitmap of the 30 window slots (4.2)
     next_print: [i64; 5], next_print_px: [u64; 5],   // k smallest publish_times > window_end
     fallback_time: i64, fallback_px: u64,            // largest publish_time <= expiry seen
+    last_candidate_change: i64,                      // starts the challenge delay D (4.3)
     settlement: SettlementPrice,
     mark_vol: Fixed, mark_vol_time: i64,   // keeper-set, display and quoting only
 }
@@ -148,9 +149,8 @@ MatchBook: optional `create_market` with the long mint as base, done off-chain b
   fallback candidate (`expiry − X <= publish_time <= expiry`, replacing it if later). The first call after
   `expiry` moves the series from `Active` to `Expired`; `mint` and `close` also check the
   clock, so the transition being lazy never lets a mint through after expiry.
-- `settle`: the per-step earliest times of 4.3 (step 1 from `window_end`, step 2 once `k`
-  distinct candidates exist, steps 3 to 5 from the hard deadline); idempotent (second call
-  fails).
+- `settle`: the per-step earliest times and the challenge delay `D` of 4.3; idempotent
+  (second call fails). Test: sampling and settling in one transaction fails.
 - `redeem` / `claim_writer`: series `Settled`; burn from the holder's account; destination
   owned by the signer; writer claims once.
 - Forged-account negative test for every rule above.
@@ -187,13 +187,19 @@ nearest cent, then payout per contract is rounded down.
 
 The program cannot tell that a print was "the first" or "the last" one, so every candidate
 is monotonically improvable until finalization: anyone may replace a stored candidate with a
-better one (3.3). Each step of the cascade has its own earliest settle time, so a short
-halt waits for the market to reopen instead of settling at a partial or stale price:
+better one (3.3). Improvement needs time, so every step that can settle on a subset waits a
+challenge delay `D` (proposed 10 min) after the last change to its candidates
+(`Series.last_candidate_change: i64`); otherwise an attacker could backfill a favorable
+subset from Hermes and call `settle` in the same transaction. Each step also has its own
+earliest settle time, so a short halt waits for the market to reopen instead of settling at
+a partial or stale price:
 
-1. `Window`: from `window_end`, as soon as at least `min_samples` slots are filled: mean
-   of the window. (Backfilled slots can still arrive after `window_end`, see 4.2.)
-2. `NextPrint`: as soon as `k = 5` candidates with distinct `publish_time > window_end` are
-   stored: their mean. A print whose `publish_time` is already stored is rejected, so one
+1. `Window`: immediately from `window_end` if all 30 slots are filled; otherwise from
+   `max(window_end, last_candidate_change) + D` with at least `min_samples` slots: mean of
+   the window. (Backfilled slots can still arrive after `window_end`, see 4.2.)
+2. `NextPrint`: once `k = 5` candidates with distinct `publish_time > window_end` are
+   stored, from `last_candidate_change + D`, so honest keepers can still post earlier
+   prints: their mean. A print whose `publish_time` is already stored is rejected, so one
    print posted five times cannot fill all `k`.
 3. From the hard deadline (proposed 7 days after expiry) only: `NextPrint` with 1 to `k − 1`
    candidates (their mean), else the partial window mean if at least one slot is filled.
