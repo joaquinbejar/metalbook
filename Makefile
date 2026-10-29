@@ -4,13 +4,30 @@
 .PHONY: all
 all: fmt-check lint test
 
+# sBPF target version for the program (cargo-build-sbf's default is v3).
+SBF_ARCH ?= v3
+
 # Build the workspace
 .PHONY: build
 build:
 	cargo build --workspace
 
-# Run every test, including the property tests. METALBOOK_PROPTEST_CASES=<n> overrides the
-# case count.
+# Build metalbook-program for SBF into target/deploy. cargo-build-sbf only warns when a
+# function's stack frame exceeds 4 KiB, which corrupts memory at run time; fail instead.
+.PHONY: program
+program:
+	@cargo build-sbf --manifest-path metalbook-program/Cargo.toml --arch $(SBF_ARCH) 2>&1 | tee target/build-sbf.log
+	@if grep -q "overflows the maximum allowed frame space" target/build-sbf.log; then \
+		echo "program: a stack frame exceeds 4 KiB (see above)"; exit 1; fi
+
+# Run the CU benchmark in LiteSVM and regenerate docs/benchmarks.md
+.PHONY: bench
+bench: program
+	METALBOOK_BENCH_OUT=$(CURDIR)/docs/benchmarks.md \
+	cargo test -p metalbook-tests --release --test cu -- --nocapture
+
+# Run every test, including the property tests and the LiteSVM tests (which need
+# `make program` first). METALBOOK_PROPTEST_CASES=<n> overrides the case count.
 .PHONY: test
 test:
 	cargo test --workspace --all-features
@@ -43,7 +60,7 @@ doc:
 
 # Pre-push checks: must pass with zero warnings
 .PHONY: pre-push
-pre-push: fmt-check lint lint-control test doc
+pre-push: fmt-check lint lint-control program test doc
 
 .PHONY: clean
 clean:

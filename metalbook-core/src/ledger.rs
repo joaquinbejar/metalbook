@@ -50,6 +50,56 @@ impl SeriesLedger {
         }
     }
 
+    /// Rebuilds a ledger from stored fields, which are untrusted: the parts must describe a
+    /// state this type can reach, so the payout and residual must be zero before settlement
+    /// and match `terms` at some price after it (`payout + residual == max_payout`), and the
+    /// accounting identity must hold.
+    ///
+    /// # Errors
+    ///
+    /// `InvariantViolated` if the parts are inconsistent, `Overflow` if an amount does not fit.
+    #[must_use = "the result carries a possible error"]
+    pub fn restore(terms: SeriesTerms, parts: LedgerParts) -> Result<Self, CoreError> {
+        let settled_amounts_ok = match parts.state {
+            SeriesState::Active | SeriesState::Expired => {
+                parts.payout == UsdcAtoms::ZERO && parts.residual == UsdcAtoms::ZERO
+            }
+            SeriesState::Settled => {
+                parts.payout.checked_add(parts.residual)? == terms.max_payout_per_contract()?
+            }
+            SeriesState::Voided => false,
+        };
+        if !settled_amounts_ok {
+            return Err(CoreError::InvariantViolated);
+        }
+        let ledger = Self {
+            terms,
+            state: parts.state,
+            open: parts.open,
+            longs_outstanding: parts.longs_outstanding,
+            writers_unclaimed: parts.writers_unclaimed,
+            payout: parts.payout,
+            residual: parts.residual,
+            vault: parts.vault,
+        };
+        ledger.check_invariants()?;
+        Ok(ledger)
+    }
+
+    /// The fields to store; [`SeriesLedger::restore`] reads them back.
+    #[must_use]
+    pub const fn parts(&self) -> LedgerParts {
+        LedgerParts {
+            state: self.state,
+            open: self.open,
+            longs_outstanding: self.longs_outstanding,
+            writers_unclaimed: self.writers_unclaimed,
+            payout: self.payout,
+            residual: self.residual,
+            vault: self.vault,
+        }
+    }
+
     /// The series terms.
     #[must_use]
     #[inline]
@@ -273,6 +323,26 @@ impl SeriesLedger {
     }
 }
 
+/// The stored form of a [`SeriesLedger`], without its terms. A plain carrier: values read
+/// from an account are untrusted until [`SeriesLedger::restore`] accepts them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LedgerParts {
+    /// Lifecycle state.
+    pub state: SeriesState,
+    /// Contracts written and not closed.
+    pub open: Contracts,
+    /// Long tokens not yet redeemed.
+    pub longs_outstanding: Contracts,
+    /// Written contracts whose residual is not yet claimed.
+    pub writers_unclaimed: Contracts,
+    /// Payout per long token; zero until settlement.
+    pub payout: UsdcAtoms,
+    /// Residual per written contract; zero until settlement.
+    pub residual: UsdcAtoms,
+    /// USDC the vault owes, in atoms.
+    pub vault: UsdcAtoms,
+}
+
 fn require_nonzero(n: Contracts) -> Result<(), CoreError> {
     if n.get() == 0 {
         Err(CoreError::ZeroAmount)
@@ -386,6 +456,41 @@ mod tests {
         );
         assert_eq!(l.redeem(Contracts::ZERO), Err(CoreError::ZeroAmount));
         assert_eq!(l, before);
+    }
+
+    #[test]
+    fn test_ledger_restore_round_trips_and_rejects_inconsistent_parts() {
+        let mut l = put_ledger();
+        l.mint(Contracts::new(2)).unwrap();
+        let t = *l.terms();
+        assert_eq!(SeriesLedger::restore(t, l.parts()), Ok(l));
+        let mut bad = l.parts();
+        bad.vault = UsdcAtoms::new(1);
+        assert_eq!(
+            SeriesLedger::restore(t, bad),
+            Err(CoreError::InvariantViolated)
+        );
+        let mut bad = l.parts();
+        bad.payout = UsdcAtoms::new(1);
+        assert_eq!(
+            SeriesLedger::restore(t, bad),
+            Err(CoreError::InvariantViolated)
+        );
+        let mut bad = l.parts();
+        bad.longs_outstanding = Contracts::new(1);
+        assert_eq!(
+            SeriesLedger::restore(t, bad),
+            Err(CoreError::InvariantViolated)
+        );
+        l.expire().unwrap();
+        l.settle(StrikeUsd::new(3_000_000_000)).unwrap();
+        assert_eq!(SeriesLedger::restore(t, l.parts()), Ok(l));
+        let mut bad = l.parts();
+        bad.residual = UsdcAtoms::ZERO;
+        assert_eq!(
+            SeriesLedger::restore(t, bad),
+            Err(CoreError::InvariantViolated)
+        );
     }
 
     #[test]

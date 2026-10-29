@@ -330,6 +330,36 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    an independent `u128` reference over the whole `u64` domain, and that random mint/close
    histories, settlement prices and claim orders empty the vault exactly.
 2. **Series, mint, close.** *Done when* LiteSVM tests and a negative test per rule in 3.3 pass.
+
+   Delivered (M2): `metalbook-program` (Pinocchio 0.11, `cdylib`) with `init_config` (tag 0),
+   `set_config` (1), `set_calendar` (2), `create_series` (3), `mint` (4) and `close` (5);
+   instruction data is the tag then little-endian fields, documented on each handler. Account
+   layouts (`#[repr(C)]`, `Pod`, tag and version bytes first): `Config` 144 bytes, `Calendar`
+   520, `Series` 216, `Writer` 80; milestone 3 extends `Series` with the settlement fields and
+   bumps the version. Decisions made while implementing:
+   - `init_config` is accepted only from the program's upgrade authority (read from its
+     `ProgramData`), so nobody can front-run the deployment and take the admin role.
+     `set_config` can rotate the admin; the USDC mint and token program never change.
+   - Token program: SPL Token only (Token-2022 is rejected), copied into each series.
+   - Cap grid: `Config.cap_bps` (up to 4 offsets, at most 60_000 bps); a call's cap must
+     satisfy `cap × 10_000 == K × (10_000 + bps)` exactly. Strike grid: one tick per metal.
+     Multiplier: one value per metal. Listing: `expiry >= now + min_listing_s`.
+   - Canonical bumps: every PDA is found with `find_program_address` when it is created and
+     its bump stored; later instructions re-derive it with the stored bump (`sol_sha256`).
+   - A pre-funded PDA (someone sent lamports to it first) is topped up, allocated and
+     assigned instead of `CreateAccount`, so creation cannot be blocked.
+   - Collateral, payout and the vault accounting come from `metalbook-core`
+     (`SeriesLedger::restore` validates the stored fields on every load); state is written
+     before every CPI. `close` is limited to the writer's own `written`, even if the writer
+     holds more long tokens.
+   - SBF stack: handlers are `#[inline(never)]`, and `make program` fails if
+     `cargo-build-sbf` reports a frame above 4 KiB (it only warns, and the overflow silently
+     corrupts locals; found while building M2).
+   Tests (`metalbook-tests/tests/program.rs`, 30 LiteSVM tests): happy paths for puts and
+   capped calls on both metals, and negative tests for every rule of 3.3 that applies to
+   these instructions, with forged accounts (genuine bytes under another owner or at another
+   address) for the config, program data, calendar, series, positions, USDC mint and token
+   accounts. CU per instruction: `docs/benchmarks.md` (`make bench`, deterministic keys).
 3. **Settlement.** Sampling, window mean, next print, fallback/void. *Done when* tests replay
    XAU fixtures captured from mainnet including a closed-market gap, and every branch of 4.3
    is covered.
@@ -371,6 +401,8 @@ whenever it is added or touched.
 | `pinocchio-associated-token-account` | 0.4.0 | `0.4`, see conflict below |
 | `optfix` | unpublished | git, pinned `rev` |
 | `litesvm-token` (dev) | 0.18.1 | `0.18` |
+| `solana-account` (dev) | pinned by LiteSVM | `4.3` |
+| `solana-clock` (dev) | pinned by LiteSVM (`~3.2.0`) | `3.2` |
 | `pyth-solana-receiver-sdk` (dev only) | 2.0.0 | `2.0` |
 
 **Version decision (Joaquin, 2026-10-29): option (b), the Pinocchio 0.11 generation.**

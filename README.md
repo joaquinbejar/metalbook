@@ -6,4 +6,4 @@ Cash-settled options on gold and silver on Solana, settled in USDC.
 
 European options on XAU and XAG priced with optfix, quoted through QuoteBook, collateralized in program vaults and settled from Pyth price feeds at expiry.
 
-**Status:** milestone 1 (domain and payoff math in `metalbook-core`). See `docs/PLAN.md`.
+**Status:** milestone 2 (domain math in `metalbook-core`; series, mint and close in `metalbook-program`). See `docs/PLAN.md`.

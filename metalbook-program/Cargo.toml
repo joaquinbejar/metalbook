@@ -1,0 +1,29 @@
+[package]
+name = "metalbook-program"
+description = "metalbook on-chain program (Pinocchio): option series, writer collateral and long tokens"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+name = "metalbook_program"
+
+[dependencies]
+bytemuck = { workspace = true }
+metalbook-core = { workspace = true }
+pinocchio = { workspace = true }
+pinocchio-associated-token-account = { workspace = true }
+pinocchio-system = { workspace = true }
+pinocchio-token = { workspace = true }
+
+# Off chain (host builds and tests) the canonical-bump search needs the curve check that the
+# `sol_try_find_program_address` syscall provides on chain.
+[target.'cfg(not(target_os = "solana"))'.dependencies]
+solana-address = { workspace = true, features = ["curve25519"] }
+
+[lints]
+workspace = true
