@@ -407,3 +407,125 @@ fn test_the_keeper_posts_no_fallback_before_expiry() {
     let env = &chain.rpc().0;
     assert_eq!(env.svm.get_balance(&payer.pubkey()).unwrap(), before);
 }
+
+/// [`Svm`] whose sends at the given indices land and then report an error, like an RPC whose
+/// confirmation fails after the transaction was processed (codex, #26).
+struct LandsThenFails {
+    svm: Svm,
+    sends: usize,
+    faulty: Vec<usize>,
+}
+
+impl Rpc for LandsThenFails {
+    fn latest_blockhash(&mut self) -> Result<solana_hash::Hash, CliError> {
+        self.svm.latest_blockhash()
+    }
+
+    fn account(&mut self, address: &Address) -> Result<Option<AccountInfo>, CliError> {
+        self.svm.account(address)
+    }
+
+    fn send(&mut self, tx: &Transaction) -> Result<(), CliError> {
+        let index = self.sends;
+        self.sends += 1;
+        let result = self.svm.send(tx);
+        if self.faulty.contains(&index) {
+            result?;
+            return Err(CliError::Rpc("confirmation timed out".into()));
+        }
+        result
+    }
+}
+
+fn faulty_chain(
+    r: &Recorded,
+    print: PrintMsg,
+    faulty: Vec<usize>,
+) -> (RpcChain<LandsThenFails, Recording>, Address, Keypair, u64) {
+    let (mut env, series) = setup(r);
+    let payer = env.funded();
+    let before = env.svm.get_balance(&payer.pubkey()).unwrap();
+    let chain = RpcChain::new(
+        LandsThenFails {
+            svm: Svm(env),
+            sends: 0,
+            faulty,
+        },
+        Recording(r.update.clone(), print),
+        PROGRAM_ID,
+        payer.insecure_clone(),
+    );
+    (chain, series, payer, before)
+}
+
+/// Live encoded VAA accounts in the VM.
+fn encoded_vaas(env: &Env) -> usize {
+    use solana_account::ReadableAccount;
+    env.svm
+        .accounts_db()
+        .inner
+        .iter()
+        .filter(|(_, a)| a.owner() == &WORMHOLE && a.lamports() > 0)
+        .filter(|(_, a)| a.data().get(..8) == Some(&receiver::ENCODED_VAA_DISCRIMINATOR[..]))
+        .count()
+}
+
+#[test]
+fn test_a_verify_that_lands_but_reports_an_error_is_closed() {
+    use metalbook_keeper::Chain;
+    let r = recorded();
+    let print = recorded_print(&r);
+    // Send 0 (verify) lands, then fails: post must not leave the encoded VAA behind.
+    let (mut chain, series, payer, before) = faulty_chain(&r, print, vec![0]);
+    assert!(chain.post(&series, &FEED_XAU, &print).is_err());
+    assert!(chain.orphans().is_empty());
+    let env = &chain.rpc().svm.0;
+    assert_eq!(encoded_vaas(env), 0);
+    // Verify (2 signatures) and the close (1); no rent lost.
+    assert_eq!(
+        before - env.svm.get_balance(&payer.pubkey()).unwrap(),
+        3 * 5_000
+    );
+    let view = SeriesView::decode(&env.account(&series).data).unwrap();
+    assert_eq!(view.candidates.parts().fallback_time, 0);
+}
+
+#[test]
+fn test_a_post_that_lands_but_reports_an_error_leaves_no_orphan() {
+    use metalbook_keeper::Chain;
+    let r = recorded();
+    let print = recorded_print(&r);
+    // Send 1 (post, sample, closes) lands, then fails: the print is on the series and the
+    // encoded VAA was closed by the transaction itself, so nothing is queued or resent.
+    let (mut chain, series, payer, before) = faulty_chain(&r, print, vec![1]);
+    assert!(chain.post(&series, &FEED_XAU, &print).is_err());
+    assert!(chain.orphans().is_empty());
+    let env = &chain.rpc().svm.0;
+    assert_eq!(encoded_vaas(env), 0);
+    assert_eq!(
+        before - env.svm.get_balance(&payer.pubkey()).unwrap(),
+        4 * 5_000
+    );
+    let view = SeriesView::decode(&env.account(&series).data).unwrap();
+    assert_eq!(view.candidates.parts().fallback_time, r.publish_time);
+}
+
+#[test]
+fn test_a_close_that_lands_but_reports_an_error_is_not_retried_forever() {
+    use metalbook_keeper::Chain;
+    let r = recorded();
+    let print = recorded_print(&r);
+    // Transaction 2 fails for real (not a series), then send 2 (the close) lands and fails:
+    // the account is gone, so it is dropped from the queue.
+    let (mut chain, _series, payer, before) = faulty_chain(&r, print, vec![2]);
+    assert!(chain.post(&config_address(), &FEED_XAU, &print).is_err());
+    assert!(chain.orphans().is_empty());
+    chain.close_orphans();
+    assert_eq!(chain.rpc().sends, 3, "no further close was sent");
+    let env = &chain.rpc().svm.0;
+    assert_eq!(encoded_vaas(env), 0);
+    assert_eq!(
+        before - env.svm.get_balance(&payer.pubkey()).unwrap(),
+        5 * 5_000
+    );
+}

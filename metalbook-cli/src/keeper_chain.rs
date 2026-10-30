@@ -94,17 +94,31 @@ impl<R: Rpc, U: UpdateSource> RpcChain<R, U> {
         &self.orphans
     }
 
-    /// Tries to close every known orphan; keeps those whose close fails.
+    /// Closes every known orphan that still exists. The account is re-read rather than the
+    /// send's result trusted: a transaction can land while its confirmation fails (codex, #26),
+    /// so an orphan is dropped once it is gone and kept while it exists or cannot be read.
     pub fn close_orphans(&mut self) {
         let pending = std::mem::take(&mut self.orphans);
         for o in pending {
-            if self
+            if self.exists(&o) == Some(false) {
+                continue;
+            }
+            let closed = self
                 .send(&[close_encoded_vaa(&self.payer.pubkey(), &o)], &[])
-                .is_err()
-            {
+                .is_ok();
+            if !closed && self.exists(&o) != Some(false) {
                 self.orphans.push(o);
             }
         }
+    }
+
+    /// Whether `account` exists; `None` if it cannot be read.
+    fn exists(&self, account: &Address) -> Option<bool> {
+        self.rpc
+            .borrow_mut()
+            .account(account)
+            .ok()
+            .map(|a| a.is_some())
     }
 
     /// The RPC, for reads outside the keeper.
@@ -180,21 +194,27 @@ impl<R: Rpc, U: UpdateSource> Chain for RpcChain<R, U> {
         let p = post_instructions(&update, feed, &a, sample)?;
         let mut verify = vec![compute_unit_limit(POST_CU)];
         verify.extend(p.verify);
-        self.send(&verify, &[&encoded_vaa])?;
         let mut post = vec![compute_unit_limit(POST_CU)];
         post.extend(p.post_and_sample);
-        if let Err(e) = self.send(&post, &[&price_update]) {
-            // Return the verified encoded VAA's rent now, or remember it for the next post; the
-            // post's error is the one that matters.
-            if self
-                .send(&[close_encoded_vaa(&a.payer, &a.encoded_vaa)], &[])
-                .is_err()
-            {
-                self.orphans.push(a.encoded_vaa);
+        // Recorded before anything is sent: either transaction may land even when its
+        // confirmation fails, and only the account itself tells (codex, #26). Transaction 2
+        // closes it; a failure re-reads it through `close_orphans`.
+        self.orphans.push(a.encoded_vaa);
+        let sent = self
+            .send(&verify, &[&encoded_vaa])
+            .and_then(|_| self.send(&post, &[&price_update]));
+        match sent {
+            Ok(_) => {
+                self.orphans.retain(|o| *o != a.encoded_vaa);
+                Ok(())
             }
-            return Err(e);
+            Err(e) => {
+                // Return the encoded VAA's rent now if it exists, or keep it for the next post;
+                // the post's error is the one that matters.
+                self.close_orphans();
+                Err(e)
+            }
         }
-        Ok(())
     }
 
     fn settle(&mut self, series: &Address) -> Result<(), KeeperError> {

@@ -601,8 +601,10 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    tests): the clock from the Clock sysvar, account reads, `settle`, and `post`, which fetches
    the binary update of the chosen print (an `UpdateSource`: Hermes, sharing the keeper's
    cache), refuses it unless its signed message is exactly that print, and sends the two
-   M7b-2 transactions. A post whose second transaction fails closes its verified encoded VAA
-   at once, remembers it if that close fails too, and retries before every later post; the
+   M7b-2 transactions. The encoded VAA is recorded before anything is sent, and after any
+   error the account itself decides (codex, #26: a transaction can land while its
+   confirmation fails): if it still exists it is closed, and kept to retry before every later
+   post while it exists or cannot be read; once it is gone it is dropped; the
    binary also finds this payer's leftovers at startup (`getProgramAccounts` on Wormhole
    filtered by the `EncodedVaa` discriminator and the write authority). `metalbook-keeper`
    lists the program's series every pass and ticks each from its window start until settled
