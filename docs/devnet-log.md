@@ -154,9 +154,86 @@ receiver and sampled it as the series' fallback candidate, in 4 seconds:
 | Encoded VAA: create, init, write, verify | `268dv4W1C7ioRiipd7waXEVGjSqnMqDR9KAv5AmScfY5XVAnWZ8s1GPKdAwA8NYbfC6cN1m3f12QUYApuZQtWSBn` |
 | `post_update`, `sample_settlement`, `reclaim_rent`, `close_encoded_vaa` | `sMLMjZd7xpmXebmYBJ9bVDMXw8uXFFJBZ7jXw5RYj246M8ykW1Yph2wj6xFhhcwYevMyg7huWhWFVks6uFxGhVA` |
 
+## Settlement of the Oct 30 series
+
+Expiry Friday 2026-10-30 16:00 New York (20:00Z). The keeper (`metalbook-keeper`, milestone 7c)
+posted every canonical window slot through Wormhole and the Pyth receiver and settled each
+series; all 23 series it ran on settled on the **full window** (method 0, 30 of 30 samples):
+
+| Metal | Settlement price | Series |
+| --- | ---: | ---: |
+| XAU | 3877.352833 | 16 |
+| XAG | 49.184986 | 7 |
+
+Cross-check at 20:15Z: Pyth `/latest` XAU 3882.91, an independent spot quote 3883.50. The ten
+50 oz XAG series got no posts and are left to void after `hard_deadline_s` (7 days).
+
+| Series | Terms | Settled (UTC) | `settle` signature |
+| --- | --- | --- | --- |
+| `9d1C6cKzUMCTh7Uj5jLQmF1FNLBpbmX5xfsgTQVJRVLK` | XAG call 48, cap 52.8, 1 oz (written) | 20:34:02 | `48gRh8LuDg5GwG3CCUjJLdCpe62kpbGAFJykdpdJ8bYRonpyxqqPi4Y4oA9iTndsPGgWqamaTiZrRjGseCSTBt4b` |
+| `4BP9Rw5jAprEPqf476bZmZd9W5pibvRFNWKowZeKuAth` | XAG call 49, cap 53.9, 1 oz (written) | 20:18:13 | `5f69PnCxyPGsQEBmakyyV2LgNj2cUB7RApd25MjzxSMGSn535EoGrcAEZ1gcncvBxgqXtfFATR4RfjA3TyjJNQrM` |
+| `9HGpi5WbLxWSZfU3WuydbXMPfNvJrdA5T4FC3Dtee57W` | XAG call 50, cap 55, 1 oz (written) | 20:38:39 | `3GnDJWjELmJFauDZhdLUKggEYDERahMdYGYGYs1CYiqght86DmqK6PUizUTKUpEe195zM9WzWoMbU4SSLhfDKoN6` |
+| `C5CA4egx9AWTVg35Y3k1EhkwfcYMGdGs5hNWDrVM6UTX` | XAG call 51, cap 56.1, 1 oz | 21:05:07 | `2df1bTfC7z2eVnFvEVr4CsSWNEkEVaCBvDiZvFtsW4GKNkKBnXXrV1VNLJADuxQGB6BwmCtm7DmSGDKR5QEGSezq` |
+| `Hs2SMW7Uv5TkPzBpZbLmPNuGepAyrUhmh1FfU6Yxtp9U` | XAG call 52, cap 57.2, 1 oz | 21:24:05 | `VA8xVhqrDfu9qYW6QR5ZYtNZjz5rQHYaxTPFjQhAA113XxnPXkhWmZKKAmwbBQtLUQuwrnQYmbLnz362mpVTvuN` |
+| `B5pPdQXhGKnEyWkU2PZZzPV1kio3jaEoQGFBSh4D4uoG` | XAG put 48, 1 oz | 20:51:01 | `222aBwD7MmsaXyGAEhSJPgveDtAkn3XBnunNFLHPVt1313KKJ2qtTWahuVD5vdfBdTRziwE9T8bmTtyiFSfRm9CD` |
+| `BSpa2zeovzEUdd9dZ6LwfNuw3BpBVWpetna9qYDqYG4R` | XAG put 50, 1 oz | 20:55:39 | `3KwF4QLbZwUc2Wxtwabfn1i8fbvagacF2CGoaLfoiJTGkSoKUXBW9GFhChcDzcbNAGDUkAMuL4VUeHWsbyj79rnF` |
+| `BvhmabWKVnDWacexfQw58U1uGbU3HLDV4AfHKquuaBbi` | XAU call 3800, cap 4180, 1 oz | 21:00:22 | `3AM2k9B1j2UUhT5J7Y19bfxDEG2MJ6WYb3mFUhUiooYj8XsuWvQA1eWxd7f4q9YuWADb4QvPBtbYcrXwuahjUuf4` |
+| `Dr5DN1cyYkNq4Xe9cKEud7cXDPjk57ERhhzvUQdBXHA` | XAU call 3850, cap 4235, 1 oz | 21:09:43 | `47HExj84syndWwLrMZJrrJGTn52xDTfrUGoTZqhvAtNcRFk9XGgtgB5sD8nv77fRhkjJ2Fs5hG6SLCffx7VPz1n8` |
+| `4W67aaLu1gUYwBszn9Zubt1hAq2wy4SL5N7XRUczF9St` | XAU call 3900, cap 4290, 1 oz | 20:26:18 | `5evkDXfADt2VkLs79RTxbtrQBMUc3nrXahrvYxtw2vYcEAtPcyBWbtrYML5MYKNQ5562jrBHLPZrAXzFNtRaRBt4` |
+| `JvKCAALDRAxd77sCLw1as17CQDXbvsg2u4ydbtGxQAi` | XAU call 3950, cap 4345, 1 oz | 21:28:47 | `6SDdULQQkoS3NRu64zgnY9CQjYMpTtpufFMd8wmrMRDvB1Mr2jNBTj4nde5YjYJthY1vCxFUZLcpSpXtFsYVT8s` |
+| `92xnofbYSfeSqvoxrdNoPfeU9kpfr7FDu8JeijgasQiw` | XAU call 4000, cap 4400, 1 oz | 20:26:18 | `4DCrNCYYGgKemmiyzx7r7wr5getH39NpD47siAvMLLb5DJTHNwM2B5HJVtaahzUXcXzLnTGmTCcsJtsHBJ7mPRsb` |
+| `6ZbdqcGTddC3SoTtggHEWWyDj4XJsFGwU58GVZmktmyM` | XAU call 4050, cap 4455, 1 oz | 20:09:01 | `wf9a168Gqw9s1naeXppLv8p5itUCtey8vnfQ7WuFdLtvARDELcsMTSA8rPo9vf68XdcP23eRwqSbkAQFL4YVKCB` |
+| `6qg3wruL2TocFw9f4Q3CXA8mmWx6GKsGeMTUphPJgF5H` | XAU call 4100, cap 4510, 1 oz | 20:31:18 | `u82FBLMyzf4TwtSDsUH4NnhwVEA3RnQvCkYm9tYxrPcoHQTYGNaNkrXdzeTN3juVXmM6ftyPkYu6tR1FgtayvU5` |
+| `3hhKKRXq8bJne9aPH2P5vtDjnaY1neJuTRpVhzDy53Jq` | XAU call 4150, cap 4565, 1 oz | 20:13:20 | `2z2jo62iXCGGoCDpGiqG72SDMXeie2F7k8qzq5XZooCdSdyk85qtDaBBkMWr3hoDLmTBHmu47fCU8AdFQyVX7kdC` |
+| `2CpwYjJVt33VQ6b8NBHSiqYxJASnk2ZtWvv3gznpswU5` | XAU put 3800, 1 oz | 20:08:16 | `3P9qL5Fn5aSTepwzXU55Cdg3jkarQto7fmaQH7fUHDohwuHEELj26SPL5M5N4XG9ZqTPaNuWqSpHJkxdPfxQSXGv` |
+| `ANtq1DXY6rg92dag8sLHLzm8dMG5t2Pn6CZzZw145oon` | XAU put 3850, 1 oz | 21:31:53 | `3bDF1qLi9uKRovCGpExN49tS4R3hvv3weWoEGNo7LuMR23LbdLWjRSSY6n4tntRGiax1YdYGh9ogE8dyM9F25o5` |
+| `5vvy5enzqBm5zfZnUFnDs8K5AG8JEEwNbspvV2CDusbN` | XAU put 3900, 1 oz | 20:29:10 | `23NTtpZtSHwUEBwe8omE8e55k7iDYQRYnv54DEfPiij54fEhCDoUDG14EwNuGGFrfELLLWUVXQ9h3nrRATAVEPoW` |
+| `AqnB9PpgUAhW4tmqzt2Srzsgdfm2BzU6m2jbbfYYpBi4` | XAU put 3950, 1 oz | 20:46:19 | `2zDhKAaRiPxKXMfMrnPeRAtiFrWSrbAed8ZgZsjo2LcRF4zJNnXXtV3yqGo6a69BcQjYmi6yHKefwSV7Vzif8T5c` |
+| `4u74R8Zn88TTxFHaDBVifQKSHgyJbsGCo9ndhG4raXhv` | XAU put 4000, 1 oz | 20:22:36 | `4pFVZ5UbpU3gSAiAVLS92fy6rwtxjV4XvAo6aqne7fsMiJMkPcgqxDHpStMjjfzqncQrmaZWh5guZzMoq7MvKFE2` |
+| `8Lv5WwKejsFCrawBAvVvUgEdsSmCBaARevXgLzvSUCAU` | XAU put 4050, 1 oz | 20:17:35 | `2sfz3V1TCjPScaswNTrGmMBY53aaJ5mytu3xpCuA1zRdggRfzUSYv2rr5KhjP8oRLm5ornpcEMLtH5WXZ2Xb7CZd` |
+| `Dw3skzBfb9S3kBrRnAvSkvGKoZcRbFy178yZ93WSiL1y` | XAU put 4100, 1 oz | 21:14:22 | `3FYpgdCDi7hfbbsojy8QB88vZHaHygdmJ73tHZ876W2KsM3KHYYsUpDmf4xy4CYX6H3fSQ5BorshXrYCnE3DoNKA` |
+| `EfyCdzYUmTY8ie6XtbHpQAgzA1bBZdhC47wK6Ez6JyRU` | XAU put 4150, 1 oz | 21:19:07 | `4vbH6n7k4smKXgLYRRFh3V1322GHjSQeDUNvsQZD2fGAnadYhNKC1hQywow9ivuQuSMnv4821f3pxusbGhpdk11m` |
+
+### The written XAG calls: redeem and claim
+
+The maker was writer and holder of one contract of each; payouts round down and the writer
+keeps the dust, so payout plus residual is exactly the collateral of each call:
+
+| Call | Payout | Residual | `redeem` | `claim_writer` |
+| --- | ---: | ---: | --- | --- |
+| 48/52.8 | 1.184986 | 3.615014 | `5tWoFRk7GEmLA8RNzHL2a5dZq9YDT8TpxeqkQxDRvt8VHsZQPs7aLqhXwRT4PPUJRzFurUnvprzMj1vYbRac3CV1` | `5qEJqQ2Pny4PgqvwiGGS63t6z9Zv9ptHNGqiwpXaLS9nH7hNNH3FGa2QX7rpv2EB1dBVBnH7wmfPELnyp5E42ZW4` |
+| 49/53.9 | 0.184986 | 4.715014 | `5swQp7mo3FxdL92BndzcYrEse85YqciacY2FmWZ9iMN4Zy87xGwUs2gXutPripa2gM8a4Xxhf374x5aoJ19Mc3GY` | `5iRSMeu7xhGk7AZpvHw3iZPmbiWBHYH9jD4yA5vKwisUR2iBHsTYghoYSgRWcr95hiTnzTAPEhNQmYn8ieAkJjLU` |
+| 50/55 | 0 | 5.0 | `2CTUjwgurNGJwwoJEighSom2X5izuj96G9wXN7xoCBNqq68iLBr7j4AgTNr9btytnNwUofFeepwBXGPfYLGNQpyr` | `4PGMJNAEUFUjCCK26CBVj3TKNiYEt2fvjzoed3JkB1jZc6mUSky3tDjBuZdP5sdvwU8tvcLpj9XEmtAkg6QMG9t` |
+
+The maker's USDC went from 25.3 to 40.0 (+14.7, the collateral of the three calls) and every
+vault owes 0.
+
+### Keeper run
+
+The keeper ran on the Studio from `~/tmp/worktrees/metalbook/keeper-run/` (binary and logs
+there, outside the repository), over the 16 XAU and the 7 XAG 1 oz series, and was stopped by
+PID after the last settlement (21:32Z):
+
+| PID | Build | From to (UTC) | Why it ended |
+| --- | --- | --- | --- |
+| 97954 | `6af18ee` | 12:57 to 16:57 | moved out of `/private/tmp` |
+| 39808 | `6af18ee` | 16:57 to 19:34 | Hermes 429 storm, hotfix #30 |
+| 81804 | `f935b1d` (#30) | 19:34 to 19:39 | pacing, #31 |
+| 88628 | `417daac` (#31) | 19:39 to 19:44 | requests for future slots, #32 |
+| 96108 | `c0ba97a` (#32) | 19:45 to 21:32 | done |
+| 16099 | `c0ba97a`, catch-up of the 7 series ticked before expiry | 20:02 to 20:43 | done |
+
+What the live window taught (each fixed and merged during the window): a per-request 429
+retry let every series ask Hermes again and kept the key inside its one-minute window (#30,
+a source-wide 61 s cooldown); bursts of backfill requests needed pacing (#31, 10 s between
+requests); the keeper queried Hermes for slots still in the future, uncached 404s that
+stalled every series under pacing (#32). Two keepers sharing one payer interfered: one's
+orphan scan closed the other's in-flight encoded VAA, so three posts failed with the
+receiver's `WrongVaaOwner` and were retried (one payer per keeper from now on). Throughput
+was bound by devnet confirmations, about 6 slot posts a minute.
+
 ## Not done yet
 
-- **Settlement of the Oct 30 series** (20:00Z): the keeper (milestone 7c) runs over the XAU
-  series and the 1 oz XAG series; the 50 oz XAG series are left to void after
-  `hard_deadline_s` (7 days). Signatures to be recorded here.
+- **The void path**: the ten 50 oz XAG Oct 30 series reach `hard_deadline_s` on Nov 6; their
+  `settle` (void) is to be recorded here.
 - **Trading** through QuoteBook on devnet, once the maker has more USDC.
