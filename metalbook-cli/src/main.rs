@@ -6,9 +6,9 @@ use clap::{Parser, Subcommand};
 use metalbook_cli::params::{parse_address, parse_kind, parse_underlying, parse_usd, ParamsFile};
 use metalbook_cli::rpc::Cluster;
 use metalbook_cli::{
-    calendar_json, config_json, create_series_ix, describe, init_config_ix, read_calendar,
-    read_config, read_keypair, read_series, series_json, set_calendar_ix, set_config_ix, submit,
-    CliError, SeriesArgs,
+    calendar_json, config_json, create_series_ix, describe, init_config_ix, mint_ixs,
+    read_calendar, read_config, read_keypair, read_series, series_json, set_calendar_ix,
+    set_config_ix, submit, CliError, SeriesArgs,
 };
 use metalbook_sdk::pda::{self, SeriesSpec};
 use solana_instruction::Instruction;
@@ -81,6 +81,16 @@ enum Command {
         /// `xau` or `xag`.
         #[arg(long)]
         underlying: String,
+    },
+    /// `mint`: the signer writes `contracts` of a series (collateral from its USDC account) and
+    /// receives as many long tokens.
+    Mint {
+        /// The series address.
+        #[arg(long)]
+        series: String,
+        /// Number of contracts.
+        #[arg(long)]
+        contracts: u64,
     },
     /// Prints a series as JSON.
     ShowSeries {
@@ -187,6 +197,26 @@ fn run(cli: Cli) -> Result<(), CliError> {
         Command::ShowCalendar { underlying } => {
             let calendar = read_calendar(&mut rpc, &program_id, parse_underlying(underlying)?)?;
             print_json(&calendar_json(&program_id, &calendar))
+        }
+        Command::Mint { series, contracts } => {
+            let signer = signer()?;
+            let ixs = mint_ixs(
+                &mut rpc,
+                &program_id,
+                &signer.pubkey(),
+                &parse_address(series)?,
+                *contracts,
+            )?;
+            if cli.dry_run {
+                for i in &ixs {
+                    print!("{}", describe(i));
+                }
+                Ok(())
+            } else {
+                let signature = submit(&mut rpc, &ixs, &signer)?;
+                println!("confirmed {signature}");
+                Ok(())
+            }
         }
         Command::ShowSeries { address } => {
             let address = parse_address(address)?;

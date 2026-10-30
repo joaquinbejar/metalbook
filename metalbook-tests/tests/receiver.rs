@@ -242,3 +242,168 @@ fn test_tampered_updates_are_rejected_by_wormhole_or_the_receiver() {
     let view = SeriesView::decode(&env.account(&series).data).unwrap();
     assert_eq!(view.candidates.parts().fallback_time, 0);
 }
+
+// Milestone 7c: the keeper's RPC chain (`metalbook_cli::keeper_chain::RpcChain`) drives the same
+// programs through the CLI's `Rpc` trait, here served by LiteSVM.
+
+use metalbook_cli::keeper_chain::{RpcChain, UpdateSource};
+use metalbook_cli::{AccountInfo, CliError, Rpc};
+use metalbook_keeper::{Keeper, KeeperError, PrintMsg, TapeSource};
+use solana_transaction::Transaction;
+
+/// [`Rpc`] over an owned [`Env`].
+struct Svm(Env);
+
+impl Rpc for Svm {
+    fn latest_blockhash(&mut self) -> Result<solana_hash::Hash, CliError> {
+        self.0.svm.expire_blockhash();
+        Ok(self.0.svm.latest_blockhash())
+    }
+
+    fn account(&mut self, address: &Address) -> Result<Option<AccountInfo>, CliError> {
+        Ok(self.0.svm.get_account(address).map(|a| AccountInfo {
+            owner: a.owner,
+            data: a.data,
+        }))
+    }
+
+    fn send(&mut self, tx: &Transaction) -> Result<(), CliError> {
+        self.0
+            .svm
+            .send_transaction(tx.clone())
+            .map(|_| ())
+            .map_err(|e| CliError::Rpc(format!("{:?} {:?}", e.err, e.meta.logs)))
+    }
+}
+
+/// Serves the recorded binary update for its own print only, as Hermes would.
+struct Recording(Vec<u8>, PrintMsg);
+
+impl UpdateSource for Recording {
+    fn update(&self, feed: &[u8; 32], print: &PrintMsg) -> Result<Vec<u8>, KeeperError> {
+        assert_eq!(feed, &FEED_XAU);
+        if print.publish_time == self.1.publish_time {
+            Ok(self.0.clone())
+        } else {
+            Err(KeeperError::Source("no update".into()))
+        }
+    }
+}
+
+fn recorded_print(r: &Recorded) -> PrintMsg {
+    let update = AccumulatorUpdate::parse(&r.update).unwrap();
+    let print = update.for_feed(&FEED_XAU).unwrap().print().unwrap();
+    assert_eq!(print.price, r.price);
+    assert_eq!(print.publish_time, r.publish_time);
+    assert_eq!(print.prev_publish_time, r.prev_publish_time);
+    print
+}
+
+#[test]
+fn test_the_rpc_chain_posts_through_the_receiver_for_the_keeper() {
+    let r = recorded();
+    let print = recorded_print(&r);
+    let (mut env, series) = setup(&r);
+    // Past expiry (one hour after the print): the keeper seeks the fallback from expiry on.
+    env.set_time(r.publish_time + 3_610);
+    let payer = env.funded();
+    let before = env.svm.get_balance(&payer.pubkey()).unwrap();
+    let mut chain = RpcChain::new(
+        Svm(env),
+        Recording(r.update.clone(), print),
+        PROGRAM_ID,
+        payer.insecure_clone(),
+    );
+    // The only print, an hour before expiry: the keeper posts it as the fallback candidate.
+    let tape = TapeSource::new(FEED_XAU, vec![print]);
+    let report = Keeper.tick(&mut chain, &tape, &series).unwrap();
+    assert!(report.fallback, "{report:?}");
+    let env = &chain.rpc().0;
+    let view = SeriesView::decode(&env.account(&series).data).unwrap();
+    assert_eq!(view.candidates.parts().fallback_time, r.publish_time);
+    assert_eq!(
+        view.candidates.parts().fallback_price,
+        u64::try_from(r.price).unwrap()
+    );
+    // Only the 4 signature fees: both temporary accounts' rent came back.
+    let after = env.svm.get_balance(&payer.pubkey()).unwrap();
+    assert_eq!(before - after, 4 * 5_000);
+}
+
+#[test]
+fn test_the_rpc_chain_refuses_an_update_that_is_not_the_chosen_print() {
+    let r = recorded();
+    let signed = recorded_print(&r);
+    let (mut env, series) = setup(&r);
+    env.set_time(r.publish_time + 3_610);
+    let payer = env.funded();
+    let before = env.svm.get_balance(&payer.pubkey()).unwrap();
+    // The keeper chose a print with another price at the same time; the update source still
+    // returns the signed one, which must not be posted in its place.
+    let chosen = PrintMsg {
+        price: signed.price + 1,
+        ..signed
+    };
+    let mut chain = RpcChain::new(
+        Svm(env),
+        Recording(r.update.clone(), chosen),
+        PROGRAM_ID,
+        payer.insecure_clone(),
+    );
+    let tape = TapeSource::new(FEED_XAU, vec![chosen]);
+    let err = Keeper.tick(&mut chain, &tape, &series).unwrap_err();
+    assert!(err.to_string().contains("differs"), "{err}");
+    let env = &chain.rpc().0;
+    assert_eq!(
+        env.svm.get_balance(&payer.pubkey()).unwrap(),
+        before,
+        "nothing was sent"
+    );
+    let view = SeriesView::decode(&env.account(&series).data).unwrap();
+    assert_eq!(view.candidates.parts().fallback_time, 0);
+}
+
+#[test]
+fn test_a_failed_post_closes_its_verified_encoded_vaa() {
+    use metalbook_keeper::Chain;
+    let r = recorded();
+    let print = recorded_print(&r);
+    let (mut env, _series) = setup(&r);
+    let payer = env.funded();
+    let before = env.svm.get_balance(&payer.pubkey()).unwrap();
+    let mut chain = RpcChain::new(
+        Svm(env),
+        Recording(r.update.clone(), print),
+        PROGRAM_ID,
+        payer.insecure_clone(),
+    );
+    // Not a series: transaction 1 verifies the VAA, transaction 2 fails in sample_settlement.
+    let not_a_series = config_address();
+    assert!(chain.post(&not_a_series, &FEED_XAU, &print).is_err());
+    // The encoded VAA was closed right away: the payer is out only the signature fees of
+    // transaction 1 (2), the failed transaction 2 (2) and the close (1).
+    assert!(chain.orphans().is_empty());
+    let env = &chain.rpc().0;
+    let after = env.svm.get_balance(&payer.pubkey()).unwrap();
+    assert_eq!(before - after, 5 * 5_000);
+}
+
+#[test]
+fn test_the_keeper_posts_no_fallback_before_expiry() {
+    let r = recorded();
+    let print = recorded_print(&r);
+    let (mut env, series) = setup(&r); // the clock is 30 s after the print, before expiry
+    let payer = env.funded();
+    let before = env.svm.get_balance(&payer.pubkey()).unwrap();
+    let mut chain = RpcChain::new(
+        Svm(env),
+        Recording(r.update.clone(), print),
+        PROGRAM_ID,
+        payer.insecure_clone(),
+    );
+    let tape = TapeSource::new(FEED_XAU, vec![print]);
+    let report = Keeper.tick(&mut chain, &tape, &series).unwrap();
+    assert_eq!(report, metalbook_keeper::TickReport::default());
+    let env = &chain.rpc().0;
+    assert_eq!(env.svm.get_balance(&payer.pubkey()).unwrap(), before);
+}

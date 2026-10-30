@@ -339,7 +339,28 @@ fn hex(bytes: &[u8; 32]) -> String {
 pub struct HermesSource<H: HttpGet> {
     config: HermesConfig,
     http: H,
+    /// Waits before each retry of a rate-limited (429) request.
+    backoff: Vec<std::time::Duration>,
+    /// Updates already fetched, by query time and by publish time (see
+    /// [`HermesSource::first_at_or_after`]).
+    cache: std::cell::RefCell<UpdateCache>,
 }
+
+/// History does not change: once Hermes has an update at or after `t`, the first one is fixed.
+/// So a found update answers its own query time and its publish time forever. The timestamp
+/// endpoint allows about 10 requests a minute per key (measured 2026-10-30, then 429 with
+/// `retry-after: 60`), and every series of a metal asks for the same canonical prints.
+#[derive(Debug, Default)]
+struct UpdateCache {
+    by_query: std::collections::HashMap<([u8; 32], i64), HermesUpdate>,
+    by_publish: std::collections::HashMap<([u8; 32], i64), HermesUpdate>,
+    /// The latest update per feed and when it was fetched: reused for [`LATEST_TTL`], so every
+    /// series of a keeper pass anchors on the same update (and the same step back).
+    latest: std::collections::HashMap<[u8; 32], (std::time::Instant, HermesUpdate)>,
+}
+
+/// How long a `/latest` answer is reused.
+const LATEST_TTL: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl<H: HttpGet> HermesSource<H> {
     fn request(&self, url: &str, feed: &[u8; 32]) -> Result<Option<HermesUpdate>, KeeperError> {
@@ -352,12 +373,20 @@ impl<H: HttpGet> HermesSource<H> {
         url: &str,
         feed: &[u8; 32],
     ) -> Result<Option<HermesUpdate>, KeeperError> {
-        let response = self.http.get(url, &[self.config.auth_header()])?;
+        // Hermes limits bursts (429): retry after each backoff step, then give up.
+        let mut response = self.http.get(url, &[self.config.auth_header()])?;
+        for wait in &self.backoff {
+            if response.status != 429 {
+                break;
+            }
+            std::thread::sleep(*wait);
+            response = self.http.get(url, &[self.config.auth_header()])?;
+        }
         match response.status {
             200 => parse_update(&response.body, feed).map(Some),
             404 => Ok(None),
             401 | 403 => Err(KeeperError::Source(format!(
-                "Hermes rejected the API key ({}); the auth scheme is unverified, see METALBOOK_HERMES_AUTH",
+                "Hermes rejected the API key ({}); check the key and METALBOOK_HERMES_AUTH",
                 response.status
             ))),
             other => Err(KeeperError::Source(format!("Hermes returned HTTP {other}"))),
@@ -367,7 +396,21 @@ impl<H: HttpGet> HermesSource<H> {
     /// A source using `config` over `http`.
     #[must_use]
     pub fn new(config: HermesConfig, http: H) -> Self {
-        Self { config, http }
+        Self {
+            config,
+            http,
+            // One wait past Hermes' `retry-after: 60`: retrying inside the window only extends it.
+            backoff: vec![std::time::Duration::from_secs(61)],
+            cache: std::cell::RefCell::default(),
+        }
+    }
+
+    /// Replaces the waits before retrying a rate-limited (429) request (default one wait of 61
+    /// seconds, past Hermes' one-minute window; empty: no retry).
+    #[must_use]
+    pub fn with_backoff(mut self, backoff: Vec<std::time::Duration>) -> Self {
+        self.backoff = backoff;
+        self
     }
 
     /// The first update of `feed` with `publish_time >= t`, or `None` if Hermes has none yet
@@ -382,12 +425,31 @@ impl<H: HttpGet> HermesSource<H> {
         feed: &[u8; 32],
         t: i64,
     ) -> Result<Option<HermesUpdate>, KeeperError> {
+        {
+            let cache = self.cache.borrow();
+            // An update published exactly at `t` is the first at or after `t`.
+            if let Some(u) = cache
+                .by_query
+                .get(&(*feed, t))
+                .or_else(|| cache.by_publish.get(&(*feed, t)))
+            {
+                return Ok(Some(u.clone()));
+            }
+        }
         let url = format!(
             "{}/v2/updates/price/{t}?ids%5B%5D={}&encoding=base64&parsed=true",
             self.config.base_url().trim_end_matches('/'),
             hex(feed)
         );
-        self.request(&url, feed)
+        let found = self.request(&url, feed)?;
+        if let Some(u) = &found {
+            let mut cache = self.cache.borrow_mut();
+            cache.by_query.insert((*feed, t), u.clone());
+            cache
+                .by_publish
+                .insert((*feed, u.print.publish_time), u.clone());
+        }
+        Ok(found)
     }
 
     /// The latest update of `feed` (`/v2/updates/price/latest`), or `None` if Hermes has none.
@@ -396,12 +458,31 @@ impl<H: HttpGet> HermesSource<H> {
     ///
     /// As [`HermesSource::first_at_or_after`].
     pub fn latest(&self, feed: &[u8; 32]) -> Result<Option<PrintMsg>, KeeperError> {
+        if let Some((at, u)) = self.cache.borrow().latest.get(feed) {
+            if at.elapsed() < LATEST_TTL {
+                return Ok(Some(u.print));
+            }
+        }
         let url = format!(
             "{}/v2/updates/price/latest?ids%5B%5D={}&encoding=base64&parsed=true",
             self.config.base_url().trim_end_matches('/'),
             hex(feed)
         );
-        self.request(&url, feed).map(|u| u.map(|u| u.print))
+        let found = self.request(&url, feed)?;
+        if let Some(u) = &found {
+            let mut cache = self.cache.borrow_mut();
+            cache
+                .latest
+                .insert(*feed, (std::time::Instant::now(), u.clone()));
+            // Only the first update of its second may answer "first at or after its publish
+            // time"; a same-second repeat must not.
+            if u.print.prev_publish_time < u.print.publish_time {
+                cache
+                    .by_publish
+                    .insert((*feed, u.print.publish_time), u.clone());
+            }
+        }
+        Ok(found.map(|u| u.print))
     }
 
     fn published(
@@ -456,10 +537,13 @@ impl<H: HttpGet> PriceSource for HermesSource<H> {
         now: i64,
     ) -> Result<Option<PrintMsg>, KeeperError> {
         let t = t.min(now);
-        // An anchor: the first update at or after t, or, if none is published yet, the latest.
-        let anchor = match self.published(feed, t, now)? {
-            Some(m) => m,
-            None => match self.latest(feed)?.filter(|m| m.publish_time <= t) {
+        // An anchor. The latest update, when it is not after t, is the latest at or before t
+        // (nothing newer exists), and `/latest` is not under the timestamp endpoint's rate
+        // limit; otherwise the first update at or after t.
+        let latest = self.latest(feed)?.filter(|m| m.publish_time <= now);
+        let anchor = match latest {
+            Some(m) if m.publish_time <= t => m,
+            _ => match self.published(feed, t, now)? {
                 Some(m) => m,
                 None => return Ok(None),
             },
