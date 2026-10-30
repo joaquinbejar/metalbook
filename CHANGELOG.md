@@ -6,8 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [0.1.0] - 2026-10-30
 
-First release. Published on crates.io: `metalbook-core` and `metalbook-sdk`. The program, the
-pricing adapter, the keeper and the CLI are used from the repository.
+First release. The crates.io packages are `metalbook-core` and `metalbook-sdk`; the program,
+the pricing adapter, the keeper and the CLI are used from the repository.
 
 ### Added
 
