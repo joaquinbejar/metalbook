@@ -62,8 +62,9 @@ Implemented and reviewed:
   posting through Wormhole (M7a, M7b);
 - the client SDK (`metalbook-sdk`) and the admin CLI (`metalbook-cli`, binary `metalbook-admin`).
 
-Pending ([`docs/PLAN.md`](docs/PLAN.md), milestone 7): the keeper binary (M7c, in review)
-and the first settlement on devnet, the Oct 30 series at 20:00Z.
+Milestone 7 is done: the full lifecycle (listing, minting, settlement from live Pyth prints
+through Wormhole and the Pyth receiver, redemption and writer claims) ran on devnet on
+2026-10-30. Pending: the void path on devnet (Nov 6) and the 0.1.0 release.
 
 ### Features
 
@@ -346,7 +347,13 @@ Example transactions: `init_config` [`3dWFtHCV…`](https://explorer.solana.com/
 `mint` [`4uLd6mpH…`](https://explorer.solana.com/tx/4uLd6mpHy7r9tJJDLsYr8Hw42ozJ8tBafnX6Y9D72fVN37pA1CNzeBPDfnp9GQtjTyovjfFGcL5fdQrFjaytDD9v?cluster=devnet), and a Pyth print posted through Wormhole and the receiver and sampled
 [`268dv4W1…`](https://explorer.solana.com/tx/268dv4W1C7ioRiipd7waXEVGjSqnMqDR9KAv5AmScfY5XVAnWZ8s1GPKdAwA8NYbfC6cN1m3f12QUYApuZQtWSBn?cluster=devnet)
 then [`sMLMjZd7…`](https://explorer.solana.com/tx/sMLMjZd7xpmXebmYBJ9bVDMXw8uXFFJBZ7jXw5RYj246M8ykW1Yph2wj6xFhhcwYevMyg7huWhWFVks6uFxGhVA?cluster=devnet).
-Settlement signatures are added to the log after the Oct 30 expiry.
+The Oct 30 series settled on the full 30-minute window, every one with 30 of 30 samples: XAU
+at 3877.352833 (16 series) and XAG at 49.184986 (7 series), for example `settle`
+[`3P9qL5Fn…`](https://explorer.solana.com/tx/3P9qL5Fn5aSTepwzXU55Cdg3jkarQto7fmaQH7fUHDohwuHEELj26SPL5M5N4XG9ZqTPaNuWqSpHJkxdPfxQSXGv?cluster=devnet)
+for the XAU 3800 put. The three written XAG calls were redeemed and claimed (for the 48/52.8
+call: `redeem` [`5tWoFRk7…`](https://explorer.solana.com/tx/5tWoFRk7GEmLA8RNzHL2a5dZq9YDT8TpxeqkQxDRvt8VHsZQPs7aLqhXwRT4PPUJRzFurUnvprzMj1vYbRac3CV1?cluster=devnet)
+paid 1.184986, `claim_writer` [`5qEJqQ2P…`](https://explorer.solana.com/tx/5qEJqQ2Pny4PgqvwiGGS63t6z9Zv9ptHNGqiwpXaLS9nH7hNNH3FGa2QX7rpv2EB1dBVBnH7wmfPELnyp5E42ZW4?cluster=devnet)
+returned 3.615014), so a full lifecycle ran on devnet against live Pyth prices.
 
 ### Reproduce it
 
