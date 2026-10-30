@@ -6,9 +6,9 @@ use clap::{Parser, Subcommand};
 use metalbook_cli::params::{parse_address, parse_kind, parse_underlying, parse_usd, ParamsFile};
 use metalbook_cli::rpc::Cluster;
 use metalbook_cli::{
-    calendar_json, config_json, create_series_ix, describe, init_config_ix, mint_ixs,
-    read_calendar, read_config, read_keypair, read_series, series_json, set_calendar_ix,
-    set_config_ix, submit, CliError, SeriesArgs,
+    calendar_json, claim_writer_ix, config_json, create_series_ix, describe, init_config_ix,
+    mint_ixs, read_calendar, read_config, read_keypair, read_series, redeem_ix, series_json,
+    set_calendar_ix, set_config_ix, submit, CliError, SeriesArgs,
 };
 use metalbook_sdk::pda::{self, SeriesSpec};
 use solana_instruction::Instruction;
@@ -91,6 +91,21 @@ enum Command {
         /// Number of contracts.
         #[arg(long)]
         contracts: u64,
+    },
+    /// `redeem`: the signer redeems long tokens of a settled or voided series.
+    Redeem {
+        /// The series address.
+        #[arg(long)]
+        series: String,
+        /// Number of long tokens.
+        #[arg(long)]
+        contracts: u64,
+    },
+    /// `claim_writer`: the signer takes its residual collateral of a settled or voided series.
+    ClaimWriter {
+        /// The series address.
+        #[arg(long)]
+        series: String,
     },
     /// Prints a series as JSON.
     ShowSeries {
@@ -217,6 +232,27 @@ fn run(cli: Cli) -> Result<(), CliError> {
                 println!("confirmed {signature}");
                 Ok(())
             }
+        }
+        Command::Redeem { series, contracts } => {
+            let signer = signer()?;
+            let instruction = redeem_ix(
+                &mut rpc,
+                &program_id,
+                &signer.pubkey(),
+                &parse_address(series)?,
+                *contracts,
+            )?;
+            finish(&mut rpc, instruction, &signer, cli.dry_run)
+        }
+        Command::ClaimWriter { series } => {
+            let signer = signer()?;
+            let instruction = claim_writer_ix(
+                &mut rpc,
+                &program_id,
+                &signer.pubkey(),
+                &parse_address(series)?,
+            )?;
+            finish(&mut rpc, instruction, &signer, cli.dry_run)
         }
         Command::ShowSeries { address } => {
             let address = parse_address(address)?;
