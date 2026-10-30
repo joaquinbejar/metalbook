@@ -79,7 +79,9 @@ struct Orphan {
 }
 
 /// Default [`RpcChain::with_landing_window`]: a blockhash is valid for 150 blocks, about a
-/// minute; twice that leaves margin.
+/// minute, so twice that leaves margin. This is a heuristic, not a proof that the transaction
+/// expired (block times vary); the keeper binary's periodic orphan scan is the backstop for
+/// anything that lands later still (codex, #29).
 const LANDING_WINDOW: std::time::Duration = std::time::Duration::from_secs(120);
 
 impl<R: Rpc, U: UpdateSource> RpcChain<R, U> {

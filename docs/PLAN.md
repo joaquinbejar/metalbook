@@ -604,9 +604,10 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    M7b-2 transactions. The encoded VAA is recorded before anything is sent, and after any
    error the account itself decides (codex, #26: a transaction can land while its
    confirmation fails): if it exists it is closed; it is dropped after a successful close,
-   when absent after having existed, or when it never appeared within 120 seconds (past a
-   blockhash's validity, so a creation still in flight can land and be closed: codex's
-   late-landing case); otherwise it is kept and retried before every later post; the
+   when absent after having existed, or when it never appeared within 120 seconds (about
+   twice a blockhash's validity, so a creation still in flight can land and be closed:
+   codex's late-landing case; a heuristic, not a proof of expiry, which is why the periodic
+   scan below is the backstop); otherwise it is kept and retried before every later post; the
    binary also finds this payer's leftovers at startup and every 10 passes (`getProgramAccounts` on Wormhole
    filtered by the `EncodedVaa` discriminator and the write authority). `metalbook-keeper`
    lists the program's series every pass and ticks each from its window start until settled
