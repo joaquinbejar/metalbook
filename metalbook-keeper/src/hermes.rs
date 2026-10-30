@@ -363,7 +363,13 @@ struct UpdateCache {
     by_publish: std::collections::HashMap<([u8; 32], i64), HermesUpdate>,
     /// The latest update per feed and when it was fetched: reused for [`LATEST_TTL`], so every
     /// series of a keeper pass anchors on the same update (and the same step back).
-    latest: std::collections::HashMap<[u8; 32], (std::time::Instant, HermesUpdate)>,
+    /// `None` when Hermes had nothing for the feed: cached too, so remembered misses never
+    /// cost a `/latest` each (codex, #28).
+    latest: std::collections::HashMap<[u8; 32], (std::time::Instant, Option<HermesUpdate>)>,
+    /// Times Hermes had nothing at or after (404). Unlike a found update, a miss is not
+    /// permanent: it holds only while the feed's latest update is still before that time
+    /// (codex, #30: without it a recurring 429 had each pass re-ask the same empty slots).
+    misses: std::collections::HashSet<([u8; 32], i64)>,
 }
 
 /// How long a `/latest` answer is reused.
@@ -470,14 +476,28 @@ impl<H: HttpGet> HermesSource<H> {
                 return Ok(Some(u.clone()));
             }
         }
+        // A known miss holds while the latest update (one `/latest` request per feed per
+        // LATEST_TTL) is still before `t`.
+        if self.cache.borrow().misses.contains(&(*feed, t)) {
+            match self.latest(feed)? {
+                // Nothing published at all, or nothing since `t`: still a miss.
+                None => return Ok(None),
+                Some(latest) if latest.publish_time < t => return Ok(None),
+                Some(_) => {}
+            }
+        }
         let url = format!(
             "{}/v2/updates/price/{t}?ids%5B%5D={}&encoding=base64&parsed=true",
             self.config.base_url().trim_end_matches('/'),
             hex(feed)
         );
         let found = self.request(&url, feed)?;
+        if found.is_none() {
+            self.cache.borrow_mut().misses.insert((*feed, t));
+        }
         if let Some(u) = &found {
             let mut cache = self.cache.borrow_mut();
+            cache.misses.remove(&(*feed, t));
             cache.by_query.insert((*feed, t), u.clone());
             cache
                 .by_publish
@@ -494,7 +514,7 @@ impl<H: HttpGet> HermesSource<H> {
     pub fn latest(&self, feed: &[u8; 32]) -> Result<Option<PrintMsg>, KeeperError> {
         if let Some((at, u)) = self.cache.borrow().latest.get(feed) {
             if at.elapsed() < LATEST_TTL {
-                return Ok(Some(u.print));
+                return Ok(u.as_ref().map(|u| u.print));
             }
         }
         let url = format!(
@@ -503,11 +523,12 @@ impl<H: HttpGet> HermesSource<H> {
             hex(feed)
         );
         let found = self.request(&url, feed)?;
+        self.cache
+            .borrow_mut()
+            .latest
+            .insert(*feed, (std::time::Instant::now(), found.clone()));
         if let Some(u) = &found {
             let mut cache = self.cache.borrow_mut();
-            cache
-                .latest
-                .insert(*feed, (std::time::Instant::now(), u.clone()));
             // Only the first update of its second may answer "first at or after its publish
             // time"; a same-second repeat must not.
             if u.print.prev_publish_time < u.print.publish_time {

@@ -10,10 +10,6 @@ publish = false
 
 [dependencies]
 metalbook-core = { workspace = true }
-# The LiteSVM generation, as metalbook-sdk (docs/PLAN.md exception): receiver posting builds
-# instructions and derives PDAs off-chain.
-solana-address = { workspace = true, features = ["curve25519", "decode"] }
-solana-instruction = { workspace = true }
 thiserror = { workspace = true }
 base64 = { workspace = true }
 serde = { workspace = true }

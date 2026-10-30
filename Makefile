@@ -23,13 +23,20 @@ program:
 		if [ $$status -ne 0 ]; then echo "program: cargo-build-sbf failed ($$status)"; exit $$status; fi
 	@sh scripts/check-sbf-log.sh target/build-sbf.log
 
-# Build the quotebook program at the pinned quotebook-sdk rev (for the M5 LiteSVM demo) into
-# target/deploy/quotebook_program.so, from cargo's checkout of the git dependency.
+# Build the quotebook program of the quotebook-sdk release we depend on (crates.io 0.1.0, tag
+# v0.1.0, pinned by commit) into target/deploy/quotebook_program.so, for the M5 LiteSVM demo.
+# The published crates do not carry the program, so the tag is cloned into target/.
+QUOTEBOOK_TAG := v0.1.0
+QUOTEBOOK_COMMIT := 6417a0f236933428436eb1de744be13745106ae3
 .PHONY: quotebook-program
 quotebook-program:
 	@mkdir -p target
-	@QB=$$(cargo metadata --format-version 1 | python3 -c 'import json,sys,os; print(next(os.path.dirname(os.path.dirname(p["manifest_path"])) for p in json.load(sys.stdin)["packages"] if p["name"]=="quotebook-sdk"))'); \
-		CARGO_TARGET_DIR=$(CURDIR)/target/quotebook cargo build-sbf --manifest-path $$QB/program/Cargo.toml \
+	@if [ ! -d target/quotebook-src ]; then \
+		git -c advice.detachedHead=false clone -q --depth 1 --branch $(QUOTEBOOK_TAG) https://github.com/joaquinbejar/quotebook.git target/quotebook-src; fi
+	@test "$$(git -C target/quotebook-src rev-parse HEAD)" = "$(QUOTEBOOK_COMMIT)" || \
+		{ echo "quotebook-program: target/quotebook-src is not $(QUOTEBOOK_TAG) ($(QUOTEBOOK_COMMIT))"; exit 1; }
+	@CARGO_TARGET_DIR=$(CURDIR)/target/quotebook cargo build-sbf \
+		--manifest-path target/quotebook-src/program/Cargo.toml \
 		--arch $(SBF_ARCH) --sbf-out-dir $(CURDIR)/target/deploy > target/build-quotebook.log 2>&1; status=$$?; \
 		if [ $$status -ne 0 ]; then cat target/build-quotebook.log; echo "quotebook-program: build failed ($$status)"; exit $$status; fi
 	@sh scripts/check-sbf-log.sh target/build-quotebook.log

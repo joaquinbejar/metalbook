@@ -27,7 +27,6 @@ mod error;
 mod hermes;
 mod keeper;
 mod layout;
-pub mod receiver;
 mod source;
 
 pub use chain::Chain;

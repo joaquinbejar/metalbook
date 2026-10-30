@@ -16,7 +16,7 @@ bytemuck = { version = "1.25", default-features = false, features = ["derive", "
 metalbook-core = { path = "metalbook-core", version = "0.1" }
 metalbook-maker = { path = "metalbook-maker" }
 metalbook-keeper = { path = "metalbook-keeper" }
-metalbook-sdk = { path = "metalbook-sdk" }
+metalbook-sdk = { path = "metalbook-sdk", version = "0.1" }
 metalbook-cli = { path = "metalbook-cli" }
 # Pinocchio 0.11 generation: decided exception to the latest-stable rule (docs/PLAN.md,
 # Dependencies). pinocchio-token 0.7 and pinocchio-associated-token-account 0.4 are the
@@ -25,15 +25,15 @@ pinocchio = { version = "0.11", default-features = false, features = ["cpi", "sh
 pinocchio-system = "0.6"
 pinocchio-token = "0.7"
 pinocchio-associated-token-account = "0.4"
-# Unpublished sibling: varswap's pyth-lite, pinned by rev (rules/global_rules.md).
-pyth-lite = { git = "https://github.com/joaquinbejar/varswap", rev = "5cf95aa97ef01b0c4a540327f1501c8dcb7a7811" }
-# Unpublished siblings: quotebook-core and quotebook-sdk, pinned to the same rev (quotebook
-# main with the M5 taker SDK).
-# Unpublished sibling: optfix, the vanilla pricer (Black-Scholes-Merton with greeks, optfix#11),
-# pinned by rev; off-chain only (metalbook-maker).
-optfix = { git = "https://github.com/joaquinbejar/optfix", rev = "204e26664a899b623d48013c0654cc292ec81a37" }
-quotebook-core = { git = "https://github.com/joaquinbejar/quotebook", rev = "578314c6ae03a3ab9ea4b045cfed60fa442ae607" }
-quotebook-sdk = { git = "https://github.com/joaquinbejar/quotebook", rev = "578314c6ae03a3ab9ea4b045cfed60fa442ae607" }
+# Siblings, published on crates.io (checked 2026-10-30): pyth-lite 0.1.0 (varswap), optfix 0.1.0,
+# quotebook-core and quotebook-sdk 0.1.0.
+pyth-lite = "0.1"
+# Shared Pyth receiver posting (varswap), replacing metalbook_keeper::receiver; off-chain only
+# (metalbook-cli). 0.1.0 checked on crates.io on 2026-10-30.
+pyth-post = "0.1"
+optfix = "0.1"
+quotebook-core = "0.1"
+quotebook-sdk = "0.1"
 # Off-chain only (metalbook-maker, metalbook-keeper). Versions checked on crates.io on 2026-10-29.
 # metalbook-keeper's Hermes client: one blocking HTTP crate, TLS through rustls (ring, webpki
 # roots), no native TLS. ureq 3.5.0, serde 1.0.229, serde_json 1.0.154, base64 0.23.1.

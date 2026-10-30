@@ -5,6 +5,11 @@
 //! A series is ticked from the start of its averaging window until it is settled or voided:
 //! before the window the keeper would only refresh the fallback candidate each pass. Errors are
 //! printed per series and the loop goes on; neither the RPC URL nor the key is ever printed.
+//!
+//! One process per payer, enforced with a lock file: a second keeper's orphan scan would take
+//! this one's in-flight encoded VAAs for leftovers and close them (seen on devnet, 2026-10-30).
+//! When Hermes rate limits a pass, the next pass resumes at the series where it stopped, so
+//! every series progresses under a recurring limit.
 
 use std::process::ExitCode;
 use std::time::Duration;
@@ -19,6 +24,7 @@ use metalbook_keeper::{
 };
 use metalbook_sdk::core::SeriesState;
 use metalbook_sdk::Address;
+use pyth_post::{scan_encoded_vaas, RpcTransport};
 
 /// Passes between two scans for orphaned encoded VAAs (about 10 minutes at the default
 /// interval).
@@ -66,8 +72,9 @@ fn run(args: Args) -> Result<(), CliError> {
         .iter()
         .map(|s| parse_address(s))
         .collect::<Result<_, _>>()?;
-    let mut chain = RpcChain::new(Cluster::new(&args.url), &source, program_id, payer);
-    // Encoded VAAs left by earlier runs whose posts failed after verification.
+    let _lock = lock_payer(&payer_address)?;
+    let cluster = Cluster::new(&args.url);
+    let mut chain = RpcChain::new(RpcTransport::new(&args.url), &source, program_id, payer);
 
     if let Some(series) = &args.check_post {
         let series = parse_address(series)?;
@@ -93,11 +100,12 @@ fn run(args: Args) -> Result<(), CliError> {
     let series_len =
         u64::try_from(SERIES_LEN).map_err(|_| CliError::Usage("series size".into()))?;
     let mut pass: u64 = 0;
+    let mut resume: Option<Address> = None;
     loop {
         // Encoded VAAs this payer left open (a post that failed after verification, or one
         // whose creation landed late): at startup and every ORPHAN_SCAN_PASSES passes.
         if pass.checked_rem(ORPHAN_SCAN_PASSES) == Some(0) {
-            let scan = chain.rpc().encoded_vaas_of(&payer_address);
+            let scan = scan_encoded_vaas(&*chain.transport(), &payer_address);
             match scan {
                 Ok(found) if !found.is_empty() => {
                     println!("closing {} orphaned encoded VAA(s)", found.len());
@@ -109,11 +117,13 @@ fn run(args: Args) -> Result<(), CliError> {
             chain.close_orphans();
         }
         pass = pass.wrapping_add(1);
-        let all = if fixed.is_empty() {
-            chain.rpc().accounts_of_size(&program_id, series_len)?
+        let mut all: Vec<Address> = if fixed.is_empty() {
+            cluster.accounts_of_size(&program_id, series_len)?
         } else {
             fixed.clone()
         };
+        // Resume where the last rate-limited pass stopped.
+        resume_at(&mut all, resume.take());
         let now = chain.now().map_err(|e| CliError::Rpc(e.to_string()))?;
         for series in &all {
             let Ok(Some(data)) = chain.account_data(series) else {
@@ -140,7 +150,15 @@ fn run(args: Args) -> Result<(), CliError> {
                         );
                     }
                 }
-                Err(e) => eprintln!("{series}: {e}"),
+                Err(e) => {
+                    eprintln!("{series}: {e}");
+                    if is_rate_limit(&e.to_string()) {
+                        // Every later request of this pass would fail too: stop here and
+                        // start the next pass with this series.
+                        resume = Some(*series);
+                        break;
+                    }
+                }
             }
         }
         if args.once {
@@ -150,6 +168,42 @@ fn run(args: Args) -> Result<(), CliError> {
     }
 }
 
+/// Puts `resume` (the series a rate-limited pass stopped at) first, keeping the cyclic order;
+/// unchanged when it is `None` or no longer listed.
+fn resume_at(series: &mut [Address], resume: Option<Address>) {
+    if let Some(i) = resume.and_then(|r| series.iter().position(|a| *a == r)) {
+        series.rotate_left(i);
+    }
+}
+
+/// Whether a tick failed on Hermes' rate limit (`HermesSource`'s 429 and cooldown errors).
+fn is_rate_limit(error: &str) -> bool {
+    error.contains("HTTP 429") || error.contains("rate limit")
+}
+
+/// Holds an exclusive lock on a file named after the payer in the temporary directory for the
+/// process' lifetime (released on exit).
+///
+/// # Errors
+///
+/// [`CliError::Usage`] when another keeper holds it.
+fn lock_payer(payer: &Address) -> Result<std::fs::File, CliError> {
+    let path = std::env::temp_dir().join(format!("metalbook-keeper-{payer}.lock"));
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .map_err(|e| CliError::Usage(format!("lock file {}: {e}", path.display())))?;
+    file.try_lock().map_err(|_| {
+        CliError::Usage(format!(
+            "another keeper already runs with payer {payer} (lock {}): one keeper per payer",
+            path.display()
+        ))
+    })?;
+    Ok(file)
+}
+
 fn main() -> ExitCode {
     match run(Args::parse()) {
         Ok(()) => ExitCode::SUCCESS,
@@ -157,5 +211,36 @@ fn main() -> ExitCode {
             eprintln!("error: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::indexing_slicing, clippy::disallowed_macros)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_rate_limited_pass_resumes_at_its_series() {
+        let a = |n: u8| Address::new_from_array([n; 32]);
+        let mut list = vec![a(1), a(2), a(3), a(4)];
+        resume_at(&mut list, Some(a(3)));
+        assert_eq!(list, vec![a(3), a(4), a(1), a(2)]);
+        resume_at(&mut list, None);
+        assert_eq!(list, vec![a(3), a(4), a(1), a(2)]);
+        resume_at(&mut list, Some(a(9)));
+        assert_eq!(list, vec![a(3), a(4), a(1), a(2)]);
+    }
+
+    #[test]
+    fn rate_limit_errors_are_recognised() {
+        assert!(is_rate_limit(
+            "price source failed: Hermes returned HTTP 429 (rate limited); cooling down"
+        ));
+        assert!(is_rate_limit(
+            "price source failed: Hermes rate limit: cooling down, request not sent"
+        ));
+        assert!(!is_rate_limit(
+            "chain operation failed: RPC: blockhash not found"
+        ));
     }
 }

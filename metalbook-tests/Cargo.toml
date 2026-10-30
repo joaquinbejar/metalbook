@@ -17,6 +17,7 @@ metalbook-core = { workspace = true }
 metalbook-keeper = { workspace = true }
 metalbook-maker = { workspace = true }
 metalbook-sdk = { workspace = true }
+pyth-post = { workspace = true }
 quotebook-sdk = { workspace = true }
 rust_decimal = { workspace = true }
 rust_decimal_macros = { workspace = true }

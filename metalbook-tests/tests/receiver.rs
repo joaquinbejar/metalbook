@@ -1,8 +1,11 @@
-//! Milestone 7b-2 in LiteSVM against the real programs: a guardian-signed Hermes update for
-//! XAU/USD (recorded 2026-10-30, `fixtures/pyth/hermes_xau_update.json`) is written to an
-//! encoded VAA and verified by the Wormhole core bridge, posted as a `Full` `PriceUpdateV2` by
-//! the Pyth receiver, and sampled by metalbook in the same transaction, which then returns both
-//! temporary accounts' rent. Every instruction comes from `metalbook_keeper::receiver`.
+//! Milestone 7b-2 and 7c in LiteSVM against the real programs, through `pyth_post` (the shared
+//! posting crate that replaced `metalbook_keeper::receiver`): a guardian-signed Hermes update
+//! for XAU/USD (recorded 2026-10-30, `fixtures/pyth/hermes_xau_update.json`) is verified by the
+//! Wormhole core bridge, posted as a `Full` `PriceUpdateV2` by the Pyth receiver and sampled by
+//! metalbook in the same transaction, which then returns both temporary accounts' rent; the
+//! keeper drives it through `metalbook_cli::keeper_chain::RpcChain`. Kept as regression tests
+//! after the migration, with the fault-injection cases (sends that land and then fail, or land
+//! late).
 //!
 //! The receiver and Wormhole binaries are the devnet deployments (`make pyth-programs`, pinned
 //! by sha256), with the receiver's config and guardian set 1 recorded from devnet. Run
@@ -26,17 +29,22 @@ use std::path::PathBuf;
 
 use base64::Engine;
 use common::*;
-use metalbook_keeper::receiver::{
-    self, compute_unit_limit, post_instructions, AccumulatorUpdate, PostAccounts, RECEIVER,
-    WORMHOLE,
-};
-use metalbook_keeper::SeriesView;
+use metalbook_cli::keeper_chain::{RpcChain, UpdateSource};
+use metalbook_keeper::{Chain, Keeper, KeeperError, PrintMsg, SeriesView, TapeSource, TickReport};
 use metalbook_sdk::ix;
+use pyth_post::ix::{PYTH_RECEIVER, WORMHOLE_PROGRAM};
+use pyth_post::{post, AccumulatorUpdate, PostError, Transport};
 use serde_json::Value;
 use solana_account::Account;
 use solana_address::Address;
+use solana_clock::Clock;
+use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
+use solana_transaction::Transaction;
+
+/// Encoded VAA account discriminator, `sha256("account:EncodedVaa")[..8]`.
+const ENCODED_VAA: [u8; 8] = [226, 101, 163, 4, 133, 160, 84, 245];
 
 fn fixture(name: &str) -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -100,20 +108,20 @@ fn hex(b: &[u8]) -> String {
 /// whose expiry is one hour after the recorded print (so the print is its fallback candidate).
 fn setup(r: &Recorded) -> (Env, Address) {
     let mut env = Env::bare();
-    load_program(&mut env, RECEIVER, "pyth_receiver.so");
-    load_program(&mut env, WORMHOLE, "wormhole_core_bridge.so");
+    load_program(&mut env, PYTH_RECEIVER, "pyth_receiver.so");
+    load_program(&mut env, WORMHOLE_PROGRAM, "wormhole_core_bridge.so");
     load_account(&mut env, "receiver_config.json");
     load_account(&mut env, "guardian_set_1.json");
     // The fee treasury exists on devnet as a plain system account.
     env.svm
-        .airdrop(&receiver::treasury(), 1_000_000_000)
+        .airdrop(&pyth_post::ix::treasury(0), 1_000_000_000)
         .unwrap();
     assert_eq!(
-        receiver::receiver_config().to_string(),
+        pyth_post::ix::receiver_config().to_string(),
         fixture("receiver_config.json")["address"]
     );
     assert_eq!(
-        receiver::guardian_set(1).to_string(),
+        pyth_post::ix::guardian_set(1).to_string(),
         fixture("guardian_set_1.json")["address"]
     );
 
@@ -139,140 +147,194 @@ fn setup(r: &Recorded) -> (Env, Address) {
     (env, series)
 }
 
-/// The two transactions of one post, signed with fresh temporary keypairs.
-fn post(
-    env: &mut Env,
-    payer: &Keypair,
-    update: &AccumulatorUpdate,
-    series: &Address,
-) -> (Sent, Sent, Address, Address) {
-    let encoded_vaa = Keypair::new();
-    let price_update = Keypair::new();
-    let size = receiver::encoded_vaa_size(update).unwrap();
-    let a = PostAccounts {
-        payer: payer.pubkey(),
-        encoded_vaa: encoded_vaa.pubkey(),
-        price_update: price_update.pubkey(),
-        encoded_vaa_rent: env.svm.minimum_balance_for_rent_exemption(size),
-    };
-    let sample = ix::sample_settlement(&PROGRAM_ID, series, &price_update.pubkey());
-    let p = post_instructions(update, &FEED_XAU, &a, sample).unwrap();
-    let mut verify = vec![compute_unit_limit(600_000)];
-    verify.extend(p.verify);
-    let first = env.send(&verify, &[payer, &encoded_vaa]);
-    let mut second = vec![compute_unit_limit(600_000)];
-    second.extend(p.post_and_sample);
-    let second = env.send(&second, &[payer, &price_update]);
-    (first, second, encoded_vaa.pubkey(), price_update.pubkey())
+/// [`Transport`] over an owned [`Env`]. A send's blockhash is valid for 150 slots.
+struct Svm {
+    env: Env,
+    last_expiry: Option<u64>,
+    /// Expire the blockhash before each send (identical transactions would collide); off when
+    /// held transactions must stay valid.
+    fresh_blockhash: bool,
 }
 
-#[test]
-fn test_a_recorded_hermes_update_is_verified_posted_and_sampled() {
-    let r = recorded();
-    let update = AccumulatorUpdate::parse(&r.update).unwrap();
-    assert_eq!(update.guardian_set_index().unwrap(), 1);
-    assert!(update.for_feed(&FEED_XAU).is_ok());
-    assert!(update.for_feed(&FEED_XAG).is_err());
-
-    let (mut env, series) = setup(&r);
-    let payer = env.funded();
-    let before = env.svm.get_balance(&payer.pubkey()).unwrap();
-    let (first, second, encoded_vaa, price_update) = post(&mut env, &payer, &update, &series);
-    let first_cu = first.unwrap_or_else(|(e, logs)| panic!("verify: {e}\n{}", logs.join("\n")));
-    let second_cu =
-        second.unwrap_or_else(|(e, logs)| panic!("post and sample: {e}\n{}", logs.join("\n")));
-    println!("CU: verify {first_cu}, post + sample + closes {second_cu}");
-
-    // metalbook stored the print as the series' fallback candidate.
-    let view = SeriesView::decode(&env.account(&series).data).unwrap();
-    let parts = view.candidates.parts();
-    assert_eq!(parts.fallback_time, r.publish_time);
-    assert_eq!(parts.fallback_price, u64::try_from(r.price).unwrap());
-    assert!(r.prev_publish_time < r.publish_time);
-
-    // Both temporary accounts are gone and their rent is back: the payer only paid the
-    // signature fees (2 + 2 signatures at 5,000 lamports).
-    assert!(env
-        .svm
-        .get_account(&encoded_vaa)
-        .is_none_or(|a| a.lamports == 0));
-    assert!(env
-        .svm
-        .get_account(&price_update)
-        .is_none_or(|a| a.lamports == 0));
-    let after = env.svm.get_balance(&payer.pubkey()).unwrap();
-    assert_eq!(before - after, 4 * 5_000);
-}
-
-#[test]
-fn test_tampered_updates_are_rejected_by_wormhole_or_the_receiver() {
-    let r = recorded();
-    let update = AccumulatorUpdate::parse(&r.update).unwrap();
-
-    // A changed guardian signature: Wormhole's verification fails, nothing is posted.
-    let (mut env, series) = setup(&r);
-    let payer = env.funded();
-    let mut bad_sig = update.clone();
-    bad_sig.vaa[10] ^= 1;
-    let (first, second, _, _) = post(&mut env, &payer, &bad_sig, &series);
-    let (e, logs) = first.unwrap_err();
-    // `verify_encoded_vaa_v1` is instruction 4 (budget, create, init, write, verify).
-    assert!(
-        e.contains("InstructionError(4,"),
-        "{e}: {}",
-        logs.join("\n")
-    );
-    assert!(second.is_err());
-    let view = SeriesView::decode(&env.account(&series).data).unwrap();
-    assert_eq!(view.candidates.parts().fallback_time, 0);
-
-    // A changed price in the message: the VAA verifies but the Merkle proof does not.
-    let (mut env, series) = setup(&r);
-    let payer = env.funded();
-    let mut bad_price = update.clone();
-    let m = &mut bad_price.updates[0].message;
-    m[33 + 7] ^= 1; // low byte of the big-endian price after the type byte and feed id
-    let (first, second, _, _) = post(&mut env, &payer, &bad_price, &series);
-    first.unwrap();
-    let (e, logs) = second.unwrap_err();
-    // `post_update` is instruction 1 (after the compute budget): the receiver's
-    // `InvalidPriceUpdate` (6002), the Merkle proof check.
-    assert!(e.contains("InstructionError(1, Custom(6002))"), "{e}");
-    assert!(logs.iter().any(|l| l.contains("InvalidPriceUpdate")));
-    let view = SeriesView::decode(&env.account(&series).data).unwrap();
-    assert_eq!(view.candidates.parts().fallback_time, 0);
-}
-
-// Milestone 7c: the keeper's RPC chain (`metalbook_cli::keeper_chain::RpcChain`) drives the same
-// programs through the CLI's `Rpc` trait, here served by LiteSVM.
-
-use metalbook_cli::keeper_chain::{RpcChain, UpdateSource};
-use metalbook_cli::{AccountInfo, CliError, Rpc};
-use metalbook_keeper::{Keeper, KeeperError, PrintMsg, TapeSource};
-use solana_transaction::Transaction;
-
-/// [`Rpc`] over an owned [`Env`].
-struct Svm(Env);
-
-impl Rpc for Svm {
-    fn latest_blockhash(&mut self) -> Result<solana_hash::Hash, CliError> {
-        self.0.svm.expire_blockhash();
-        Ok(self.0.svm.latest_blockhash())
+impl Svm {
+    fn new(env: Env) -> Self {
+        Self {
+            env,
+            last_expiry: None,
+            fresh_blockhash: true,
+        }
     }
 
-    fn account(&mut self, address: &Address) -> Result<Option<AccountInfo>, CliError> {
-        Ok(self.0.svm.get_account(address).map(|a| AccountInfo {
-            owner: a.owner,
-            data: a.data,
-        }))
+    fn signed(
+        &mut self,
+        instructions: &[Instruction],
+        payer: &Keypair,
+        extra: Option<&Keypair>,
+    ) -> Transaction {
+        if self.fresh_blockhash {
+            self.env.svm.expire_blockhash();
+        }
+        let mut signers = vec![payer];
+        signers.extend(extra);
+        let slot = self.env.svm.get_sysvar::<Clock>().slot;
+        self.last_expiry = Some(slot + 150);
+        Transaction::new_signed_with_payer(
+            instructions,
+            Some(&payer.pubkey()),
+            &signers,
+            self.env.svm.latest_blockhash(),
+        )
     }
 
-    fn send(&mut self, tx: &Transaction) -> Result<(), CliError> {
-        self.0
+    fn deliver(&mut self, tx: &Transaction) -> Result<String, PostError> {
+        self.env
             .svm
             .send_transaction(tx.clone())
-            .map(|_| ())
-            .map_err(|e| CliError::Rpc(format!("{:?} {:?}", e.err, e.meta.logs)))
+            .map(|_| tx.signatures[0].to_string())
+            .map_err(|e| PostError::Chain(format!("{:?} {:?}", e.err, e.meta.logs)))
+    }
+}
+
+impl Transport for Svm {
+    fn now(&self) -> Result<i64, PostError> {
+        Ok(self.env.svm.get_sysvar::<Clock>().unix_timestamp)
+    }
+
+    fn account(&self, account: &Address) -> Result<Option<(Address, Vec<u8>)>, PostError> {
+        Ok(self.env.svm.get_account(account).map(|a| (a.owner, a.data)))
+    }
+
+    fn block_height(&self) -> Result<u64, PostError> {
+        Ok(self.env.svm.get_sysvar::<Clock>().slot)
+    }
+
+    fn last_send_expiry(&self) -> Option<u64> {
+        self.last_expiry
+    }
+
+    fn program_accounts(
+        &self,
+        program: &Address,
+        offset: usize,
+        bytes: &[u8],
+    ) -> Result<Vec<Address>, PostError> {
+        use solana_account::ReadableAccount;
+        Ok(self
+            .env
+            .svm
+            .accounts_db()
+            .inner
+            .iter()
+            .filter(|(_, a)| a.owner() == program && a.lamports() > 0)
+            .filter(|(_, a)| a.data().get(offset..offset + bytes.len()) == Some(bytes))
+            .map(|(k, _)| *k)
+            .collect())
+    }
+
+    fn rent_exempt(&self, len: usize) -> Result<u64, PostError> {
+        Ok(self.env.svm.minimum_balance_for_rent_exemption(len))
+    }
+
+    fn send(
+        &mut self,
+        instructions: &[Instruction],
+        payer: &Keypair,
+        extra: Option<&Keypair>,
+    ) -> Result<String, PostError> {
+        let tx = self.signed(instructions, payer, extra);
+        self.deliver(&tx)
+    }
+}
+
+/// [`Svm`] whose sends at the given indices land and then report an error, like an RPC whose
+/// confirmation fails after the transaction was processed (codex, #26).
+struct LandsThenFails {
+    svm: Svm,
+    sends: usize,
+    faulty: Vec<usize>,
+}
+
+/// [`Svm`] whose sends at the given indices report an error without landing yet; the held
+/// transactions land on [`LandsLate::deliver_held`] (a confirmation that fails while the
+/// transaction is still in flight, codex #26).
+struct LandsLate {
+    svm: Svm,
+    sends: usize,
+    late: Vec<usize>,
+    held: Vec<Transaction>,
+}
+
+impl LandsLate {
+    fn deliver_held(&mut self) {
+        for tx in std::mem::take(&mut self.held) {
+            self.svm.deliver(&tx).unwrap();
+        }
+    }
+}
+
+macro_rules! delegate_reads {
+    () => {
+        fn now(&self) -> Result<i64, PostError> {
+            self.svm.now()
+        }
+        fn account(&self, account: &Address) -> Result<Option<(Address, Vec<u8>)>, PostError> {
+            self.svm.account(account)
+        }
+        fn block_height(&self) -> Result<u64, PostError> {
+            self.svm.block_height()
+        }
+        fn last_send_expiry(&self) -> Option<u64> {
+            self.svm.last_send_expiry()
+        }
+        fn program_accounts(
+            &self,
+            program: &Address,
+            offset: usize,
+            bytes: &[u8],
+        ) -> Result<Vec<Address>, PostError> {
+            self.svm.program_accounts(program, offset, bytes)
+        }
+        fn rent_exempt(&self, len: usize) -> Result<u64, PostError> {
+            self.svm.rent_exempt(len)
+        }
+    };
+}
+
+impl Transport for LandsThenFails {
+    delegate_reads!();
+    fn send(
+        &mut self,
+        instructions: &[Instruction],
+        payer: &Keypair,
+        extra: Option<&Keypair>,
+    ) -> Result<String, PostError> {
+        let index = self.sends;
+        self.sends += 1;
+        let result = self.svm.send(instructions, payer, extra);
+        if self.faulty.contains(&index) {
+            result?;
+            return Err(PostError::Chain("confirmation timed out".into()));
+        }
+        result
+    }
+}
+
+impl Transport for LandsLate {
+    delegate_reads!();
+    fn send(
+        &mut self,
+        instructions: &[Instruction],
+        payer: &Keypair,
+        extra: Option<&Keypair>,
+    ) -> Result<String, PostError> {
+        let index = self.sends;
+        self.sends += 1;
+        let tx = self.svm.signed(instructions, payer, extra);
+        if self.late.contains(&index) {
+            self.held.push(tx);
+            return Err(PostError::Chain("confirmation timed out".into()));
+        }
+        self.svm.deliver(&tx)
     }
 }
 
@@ -292,11 +354,133 @@ impl UpdateSource for Recording {
 
 fn recorded_print(r: &Recorded) -> PrintMsg {
     let update = AccumulatorUpdate::parse(&r.update).unwrap();
-    let print = update.for_feed(&FEED_XAU).unwrap().print().unwrap();
+    let (_, m) = update.find(&FEED_XAU).unwrap();
+    let print = PrintMsg {
+        price: m.price,
+        conf: m.conf,
+        expo: m.exponent,
+        publish_time: m.publish_time,
+        prev_publish_time: m.prev_publish_time,
+    };
     assert_eq!(print.price, r.price);
     assert_eq!(print.publish_time, r.publish_time);
     assert_eq!(print.prev_publish_time, r.prev_publish_time);
     print
+}
+
+/// Live encoded VAA accounts in the VM.
+fn encoded_vaas(env: &Env) -> usize {
+    use solana_account::ReadableAccount;
+    env.svm
+        .accounts_db()
+        .inner
+        .iter()
+        .filter(|(_, a)| a.owner() == &WORMHOLE_PROGRAM && a.lamports() > 0)
+        .filter(|(_, a)| a.data().get(..8) == Some(&ENCODED_VAA[..]))
+        .count()
+}
+
+fn fallback_time(env: &Env, series: &Address) -> i64 {
+    SeriesView::decode(&env.account(series).data)
+        .unwrap()
+        .candidates
+        .parts()
+        .fallback_time
+}
+
+/// The three transactions of a post of this 292-byte VAA: create, init and write the first
+/// chunk (2 signatures); write the rest and verify (1); post, sample and close (2).
+const POST_SIGNATURES: u64 = 5;
+
+#[test]
+fn test_a_recorded_hermes_update_is_verified_posted_and_sampled() {
+    let r = recorded();
+    let update = AccumulatorUpdate::parse(&r.update).unwrap();
+    assert_eq!(update.guardian_set_index().unwrap(), 1);
+    assert!(update.find(&FEED_XAG).is_none());
+    let (merkle, _) = update.find(&FEED_XAU).unwrap();
+
+    let (mut env, series) = setup(&r);
+    let payer = env.funded();
+    let before = env.svm.get_balance(&payer.pubkey()).unwrap();
+    let mut svm = Svm::new(env);
+    let signatures = post(&mut svm, &payer, &update, merkle, 0, |pu| {
+        vec![ix::sample_settlement(&PROGRAM_ID, &series, pu)]
+    })
+    .unwrap();
+    assert_eq!(signatures.len(), 3);
+    let env = &svm.env;
+    // metalbook stored the print as the series' fallback candidate.
+    let parts = SeriesView::decode(&env.account(&series).data)
+        .unwrap()
+        .candidates
+        .parts();
+    assert_eq!(parts.fallback_time, r.publish_time);
+    assert_eq!(parts.fallback_price, u64::try_from(r.price).unwrap());
+    // Both temporary accounts are gone and their rent is back: only signatures were paid.
+    assert_eq!(encoded_vaas(env), 0);
+    assert_eq!(
+        before - env.svm.get_balance(&payer.pubkey()).unwrap(),
+        POST_SIGNATURES * 5_000
+    );
+}
+
+#[test]
+fn test_tampered_updates_are_rejected_by_wormhole_or_the_receiver() {
+    let r = recorded();
+    let update = AccumulatorUpdate::parse(&r.update).unwrap();
+
+    // A changed guardian signature: Wormhole's verification fails, nothing reaches the series,
+    // and the encoded VAA is closed.
+    let (mut env, series) = setup(&r);
+    let payer = env.funded();
+    let mut bad_sig = update.clone();
+    bad_sig.vaa[10] ^= 1;
+    let (merkle, _) = bad_sig.find(&FEED_XAU).unwrap();
+    let mut svm = Svm::new(env);
+    let e = post(&mut svm, &payer, &bad_sig, merkle, 0, |pu| {
+        vec![ix::sample_settlement(&PROGRAM_ID, &series, pu)]
+    })
+    .unwrap_err();
+    assert!(
+        !matches!(e, PostError::Orphaned { .. } | PostError::Uncertain { .. }),
+        "{e}"
+    );
+    assert_eq!(fallback_time(&svm.env, &series), 0);
+    assert_eq!(encoded_vaas(&svm.env), 0);
+
+    // A changed price in the message: the VAA verifies but the Merkle proof does not
+    // (the receiver's InvalidPriceUpdate, 6002).
+    let (mut env, series) = setup(&r);
+    let payer = env.funded();
+    let mut bad_price = update.clone();
+    bad_price.updates[0].message[33 + 7] ^= 1;
+    let merkle = bad_price.updates[0].clone();
+    let mut svm = Svm::new(env);
+    let e = post(&mut svm, &payer, &bad_price, &merkle, 0, |pu| {
+        vec![ix::sample_settlement(&PROGRAM_ID, &series, pu)]
+    })
+    .unwrap_err();
+    assert!(
+        e.to_string().contains("6002") || e.to_string().contains("InvalidPriceUpdate"),
+        "{e}"
+    );
+    assert_eq!(fallback_time(&svm.env, &series), 0);
+    assert_eq!(encoded_vaas(&svm.env), 0);
+}
+
+fn chain<T: Transport>(
+    t: T,
+    r: &Recorded,
+    print: PrintMsg,
+    payer: &Keypair,
+) -> RpcChain<T, Recording> {
+    RpcChain::new(
+        t,
+        Recording(r.update.clone(), print),
+        PROGRAM_ID,
+        payer.insecure_clone(),
+    )
 }
 
 #[test]
@@ -308,26 +492,16 @@ fn test_the_rpc_chain_posts_through_the_receiver_for_the_keeper() {
     env.set_time(r.publish_time + 3_610);
     let payer = env.funded();
     let before = env.svm.get_balance(&payer.pubkey()).unwrap();
-    let mut chain = RpcChain::new(
-        Svm(env),
-        Recording(r.update.clone(), print),
-        PROGRAM_ID,
-        payer.insecure_clone(),
-    );
-    // The only print, an hour before expiry: the keeper posts it as the fallback candidate.
+    let mut chain = chain(Svm::new(env), &r, print, &payer);
     let tape = TapeSource::new(FEED_XAU, vec![print]);
     let report = Keeper.tick(&mut chain, &tape, &series).unwrap();
     assert!(report.fallback, "{report:?}");
-    let env = &chain.rpc().0;
-    let view = SeriesView::decode(&env.account(&series).data).unwrap();
-    assert_eq!(view.candidates.parts().fallback_time, r.publish_time);
+    let env = &chain.transport().env;
+    assert_eq!(fallback_time(env, &series), r.publish_time);
     assert_eq!(
-        view.candidates.parts().fallback_price,
-        u64::try_from(r.price).unwrap()
+        before - env.svm.get_balance(&payer.pubkey()).unwrap(),
+        POST_SIGNATURES * 5_000
     );
-    // Only the 4 signature fees: both temporary accounts' rent came back.
-    let after = env.svm.get_balance(&payer.pubkey()).unwrap();
-    assert_eq!(before - after, 4 * 5_000);
 }
 
 #[test]
@@ -344,48 +518,17 @@ fn test_the_rpc_chain_refuses_an_update_that_is_not_the_chosen_print() {
         price: signed.price + 1,
         ..signed
     };
-    let mut chain = RpcChain::new(
-        Svm(env),
-        Recording(r.update.clone(), chosen),
-        PROGRAM_ID,
-        payer.insecure_clone(),
-    );
+    let mut chain = chain(Svm::new(env), &r, chosen, &payer);
     let tape = TapeSource::new(FEED_XAU, vec![chosen]);
     let err = Keeper.tick(&mut chain, &tape, &series).unwrap_err();
     assert!(err.to_string().contains("differs"), "{err}");
-    let env = &chain.rpc().0;
+    let env = &chain.transport().env;
     assert_eq!(
         env.svm.get_balance(&payer.pubkey()).unwrap(),
         before,
         "nothing was sent"
     );
-    let view = SeriesView::decode(&env.account(&series).data).unwrap();
-    assert_eq!(view.candidates.parts().fallback_time, 0);
-}
-
-#[test]
-fn test_a_failed_post_closes_its_verified_encoded_vaa() {
-    use metalbook_keeper::Chain;
-    let r = recorded();
-    let print = recorded_print(&r);
-    let (mut env, _series) = setup(&r);
-    let payer = env.funded();
-    let before = env.svm.get_balance(&payer.pubkey()).unwrap();
-    let mut chain = RpcChain::new(
-        Svm(env),
-        Recording(r.update.clone(), print),
-        PROGRAM_ID,
-        payer.insecure_clone(),
-    );
-    // Not a series: transaction 1 verifies the VAA, transaction 2 fails in sample_settlement.
-    let not_a_series = config_address();
-    assert!(chain.post(&not_a_series, &FEED_XAU, &print).is_err());
-    // The encoded VAA was closed right away: the payer is out only the signature fees of
-    // transaction 1 (2), the failed transaction 2 (2) and the close (1).
-    assert!(chain.orphans().is_empty());
-    let env = &chain.rpc().0;
-    let after = env.svm.get_balance(&payer.pubkey()).unwrap();
-    assert_eq!(before - after, 5 * 5_000);
+    assert_eq!(fallback_time(env, &series), 0);
 }
 
 #[test]
@@ -395,218 +538,157 @@ fn test_the_keeper_posts_no_fallback_before_expiry() {
     let (mut env, series) = setup(&r); // the clock is 30 s after the print, before expiry
     let payer = env.funded();
     let before = env.svm.get_balance(&payer.pubkey()).unwrap();
-    let mut chain = RpcChain::new(
-        Svm(env),
-        Recording(r.update.clone(), print),
-        PROGRAM_ID,
-        payer.insecure_clone(),
-    );
+    let mut chain = chain(Svm::new(env), &r, print, &payer);
     let tape = TapeSource::new(FEED_XAU, vec![print]);
-    let report = Keeper.tick(&mut chain, &tape, &series).unwrap();
-    assert_eq!(report, metalbook_keeper::TickReport::default());
-    let env = &chain.rpc().0;
-    assert_eq!(env.svm.get_balance(&payer.pubkey()).unwrap(), before);
+    assert_eq!(
+        Keeper.tick(&mut chain, &tape, &series).unwrap(),
+        TickReport::default()
+    );
+    assert_eq!(
+        chain
+            .transport()
+            .env
+            .svm
+            .get_balance(&payer.pubkey())
+            .unwrap(),
+        before
+    );
 }
 
-/// [`Svm`] whose sends at the given indices land and then report an error, like an RPC whose
-/// confirmation fails after the transaction was processed (codex, #26).
-struct LandsThenFails {
-    svm: Svm,
-    sends: usize,
-    faulty: Vec<usize>,
-}
-
-impl Rpc for LandsThenFails {
-    fn latest_blockhash(&mut self) -> Result<solana_hash::Hash, CliError> {
-        self.svm.latest_blockhash()
-    }
-
-    fn account(&mut self, address: &Address) -> Result<Option<AccountInfo>, CliError> {
-        self.svm.account(address)
-    }
-
-    fn send(&mut self, tx: &Transaction) -> Result<(), CliError> {
-        let index = self.sends;
-        self.sends += 1;
-        let result = self.svm.send(tx);
-        if self.faulty.contains(&index) {
-            result?;
-            return Err(CliError::Rpc("confirmation timed out".into()));
-        }
-        result
-    }
+#[test]
+fn test_a_failed_post_closes_its_verified_encoded_vaa() {
+    let r = recorded();
+    let print = recorded_print(&r);
+    let (mut env, _series) = setup(&r);
+    let payer = env.funded();
+    let before = env.svm.get_balance(&payer.pubkey()).unwrap();
+    let mut chain = chain(Svm::new(env), &r, print, &payer);
+    // Not a series: the VAA verifies, the last transaction fails in sample_settlement.
+    assert!(chain.post(&config_address(), &FEED_XAU, &print).is_err());
+    assert!(chain.orphans().is_empty());
+    let env = &chain.transport().env;
+    assert_eq!(encoded_vaas(env), 0);
+    // The post's 5 signatures and the close's 1; no rent lost.
+    assert_eq!(
+        before - env.svm.get_balance(&payer.pubkey()).unwrap(),
+        (POST_SIGNATURES + 1) * 5_000
+    );
 }
 
 fn faulty_chain(
     r: &Recorded,
     print: PrintMsg,
     faulty: Vec<usize>,
+    after_expiry: bool,
 ) -> (RpcChain<LandsThenFails, Recording>, Address, Keypair, u64) {
     let (mut env, series) = setup(r);
+    if after_expiry {
+        env.set_time(r.publish_time + 3_610);
+    }
     let payer = env.funded();
     let before = env.svm.get_balance(&payer.pubkey()).unwrap();
-    let chain = RpcChain::new(
-        LandsThenFails {
-            svm: Svm(env),
-            sends: 0,
-            faulty,
-        },
-        Recording(r.update.clone(), print),
-        PROGRAM_ID,
-        payer.insecure_clone(),
-    );
-    (chain, series, payer, before)
-}
-
-/// Live encoded VAA accounts in the VM.
-fn encoded_vaas(env: &Env) -> usize {
-    use solana_account::ReadableAccount;
-    env.svm
-        .accounts_db()
-        .inner
-        .iter()
-        .filter(|(_, a)| a.owner() == &WORMHOLE && a.lamports() > 0)
-        .filter(|(_, a)| a.data().get(..8) == Some(&receiver::ENCODED_VAA_DISCRIMINATOR[..]))
-        .count()
+    let t = LandsThenFails {
+        svm: Svm::new(env),
+        sends: 0,
+        faulty,
+    };
+    (chain(t, r, print, &payer), series, payer, before)
 }
 
 #[test]
-fn test_a_verify_that_lands_but_reports_an_error_is_closed() {
-    use metalbook_keeper::Chain;
+fn test_a_create_that_lands_but_reports_an_error_is_closed() {
     let r = recorded();
     let print = recorded_print(&r);
-    // Send 0 (verify) lands, then fails: post must not leave the encoded VAA behind.
-    let (mut chain, series, payer, before) = faulty_chain(&r, print, vec![0]);
+    // Send 0 (create, init, write) lands, then fails: the encoded VAA must not stay behind.
+    let (mut chain, series, payer, before) = faulty_chain(&r, print, vec![0], false);
     assert!(chain.post(&series, &FEED_XAU, &print).is_err());
     assert!(chain.orphans().is_empty());
-    let env = &chain.rpc().svm.0;
+    let env = &chain.transport().svm.env;
     assert_eq!(encoded_vaas(env), 0);
-    // Verify (2 signatures) and the close (1); no rent lost.
+    // The first transaction (2 signatures) and the close (1).
     assert_eq!(
         before - env.svm.get_balance(&payer.pubkey()).unwrap(),
         3 * 5_000
     );
-    let view = SeriesView::decode(&env.account(&series).data).unwrap();
-    assert_eq!(view.candidates.parts().fallback_time, 0);
+    assert_eq!(fallback_time(env, &series), 0);
 }
 
 #[test]
 fn test_a_post_that_lands_but_reports_an_error_leaves_no_orphan() {
-    use metalbook_keeper::Chain;
     let r = recorded();
     let print = recorded_print(&r);
-    // Send 1 (post, sample, closes) lands, then fails: the print is on the series and the
-    // encoded VAA was closed by the transaction itself, so nothing is queued or resent.
-    let (mut chain, series, payer, before) = faulty_chain(&r, print, vec![1]);
+    // Send 2 (post, sample, closes) lands, then fails: the print is on the series and the
+    // transaction itself closed the encoded VAA, so nothing is queued.
+    let (mut chain, series, payer, before) = faulty_chain(&r, print, vec![2], false);
     assert!(chain.post(&series, &FEED_XAU, &print).is_err());
     assert!(chain.orphans().is_empty());
-    let env = &chain.rpc().svm.0;
+    let env = &chain.transport().svm.env;
     assert_eq!(encoded_vaas(env), 0);
     assert_eq!(
         before - env.svm.get_balance(&payer.pubkey()).unwrap(),
-        4 * 5_000
+        POST_SIGNATURES * 5_000
     );
-    let view = SeriesView::decode(&env.account(&series).data).unwrap();
-    assert_eq!(view.candidates.parts().fallback_time, r.publish_time);
+    assert_eq!(fallback_time(env, &series), r.publish_time);
 }
 
 #[test]
 fn test_a_close_that_lands_but_reports_an_error_is_not_retried_forever() {
-    use metalbook_keeper::Chain;
     let r = recorded();
     let print = recorded_print(&r);
-    // Transaction 2 fails for real (not a series), then send 2 (the close) lands and fails:
-    // the account is gone, so it is dropped from the queue.
-    let (mut chain, _series, payer, before) = faulty_chain(&r, print, vec![2]);
+    // The last transaction fails for real (not a series), then send 3 (the close) lands and
+    // fails: the account is gone, so nothing stays queued and nothing is resent.
+    let (mut chain, _series, _payer, _before) = faulty_chain(&r, print, vec![3], false);
     assert!(chain.post(&config_address(), &FEED_XAU, &print).is_err());
     assert!(chain.orphans().is_empty());
+    let sends = chain.transport().sends;
     chain.close_orphans();
-    assert_eq!(chain.rpc().sends, 3, "no further close was sent");
-    let env = &chain.rpc().svm.0;
-    assert_eq!(encoded_vaas(env), 0);
-    assert_eq!(
-        before - env.svm.get_balance(&payer.pubkey()).unwrap(),
-        5 * 5_000
-    );
+    assert_eq!(chain.transport().sends, sends, "no further close was sent");
+    assert_eq!(encoded_vaas(&chain.transport().svm.env), 0);
 }
 
-/// [`Svm`] whose sends at the given indices report an error without landing yet; the held
-/// transactions land when [`LandsLate::deliver`] is called (codex, #26: a confirmation can fail
-/// while the transaction is still in flight).
-struct LandsLate {
-    svm: Svm,
-    sends: usize,
-    late: Vec<usize>,
-    held: Vec<Transaction>,
-}
-
-impl LandsLate {
-    fn deliver(&mut self) {
-        for tx in std::mem::take(&mut self.held) {
-            self.svm.send(&tx).unwrap();
-        }
-    }
-}
-
-impl Rpc for LandsLate {
-    fn latest_blockhash(&mut self) -> Result<solana_hash::Hash, CliError> {
-        // Keep the held transactions' blockhash valid when they are delivered.
-        Ok(self.svm.0.svm.latest_blockhash())
-    }
-
-    fn account(&mut self, address: &Address) -> Result<Option<AccountInfo>, CliError> {
-        self.svm.account(address)
-    }
-
-    fn send(&mut self, tx: &Transaction) -> Result<(), CliError> {
-        let index = self.sends;
-        self.sends += 1;
-        if self.late.contains(&index) {
-            self.held.push(tx.clone());
-            return Err(CliError::Rpc("confirmation timed out".into()));
-        }
-        self.svm
-            .0
-            .svm
-            .send_transaction(tx.clone())
-            .map(|_| ())
-            .map_err(|e| CliError::Rpc(format!("{:?}", e.err)))
-    }
+fn late_chain(
+    r: &Recorded,
+    print: PrintMsg,
+) -> (RpcChain<LandsLate, Recording>, Address, Keypair, u64) {
+    let (mut env, series) = setup(r);
+    let payer = env.funded();
+    let before = env.svm.get_balance(&payer.pubkey()).unwrap();
+    let mut svm = Svm::new(env);
+    // Held transactions must keep a valid blockhash until they are delivered.
+    svm.fresh_blockhash = false;
+    let t = LandsLate {
+        svm,
+        sends: 0,
+        late: vec![0],
+        held: Vec::new(),
+    };
+    (chain(t, r, print, &payer), series, payer, before)
 }
 
 #[test]
-fn test_a_verify_that_lands_late_is_kept_then_closed() {
-    use metalbook_keeper::Chain;
+fn test_a_create_that_lands_late_is_kept_then_closed() {
     let r = recorded();
     let print = recorded_print(&r);
-    let (mut env, series) = setup(&r);
-    let payer = env.funded();
-    let before = env.svm.get_balance(&payer.pubkey()).unwrap();
-    let mut chain = RpcChain::new(
-        LandsLate {
-            svm: Svm(env),
-            sends: 0,
-            late: vec![0],
-            held: Vec::new(),
-        },
-        Recording(r.update.clone(), print),
-        PROGRAM_ID,
-        payer.insecure_clone(),
-    );
-    // The verify is still in flight when its confirmation fails: the account is absent, but
-    // within the landing window the address is kept.
-    assert!(chain.post(&series, &FEED_XAU, &print).is_err());
+    let (mut chain, series, payer, before) = late_chain(&r, print);
+    // The first transaction is still in flight when its confirmation fails: pyth_post reports
+    // it as uncertain, and the chain keeps the address.
+    let e = chain.post(&series, &FEED_XAU, &print).unwrap_err();
+    assert!(e.to_string().contains("may still be created"), "{e}");
     assert_eq!(chain.orphans().len(), 1);
     chain.close_orphans();
-    assert_eq!(chain.orphans().len(), 1, "still absent, still kept");
+    assert_eq!(
+        chain.orphans().len(),
+        1,
+        "still absent and within its blockhash: kept"
+    );
     // It lands: the next cleanup closes it.
-    chain.rpc().deliver();
-    assert_eq!(encoded_vaas(&chain.rpc().svm.0), 1);
+    chain.transport().deliver_held();
+    assert_eq!(encoded_vaas(&chain.transport().svm.env), 1);
     chain.close_orphans();
     assert!(chain.orphans().is_empty());
-    let env = &chain.rpc().svm.0;
+    let env = &chain.transport().svm.env;
     assert_eq!(encoded_vaas(env), 0);
-    // The late verify (2 signatures) and the close (1): no rent lost.
+    // The late transaction (2 signatures) and the close (1): no rent lost.
     assert_eq!(
         before - env.svm.get_balance(&payer.pubkey()).unwrap(),
         3 * 5_000
@@ -614,25 +696,15 @@ fn test_a_verify_that_lands_late_is_kept_then_closed() {
 }
 
 #[test]
-fn test_an_address_that_never_lands_is_dropped_after_the_window() {
-    use metalbook_keeper::Chain;
+fn test_an_address_that_never_lands_is_dropped_once_its_blockhash_expires() {
     let r = recorded();
     let print = recorded_print(&r);
-    let (mut env, series) = setup(&r);
-    let payer = env.funded();
-    let mut chain = RpcChain::new(
-        LandsLate {
-            svm: Svm(env),
-            sends: 0,
-            late: vec![0],
-            held: Vec::new(),
-        },
-        Recording(r.update.clone(), print),
-        PROGRAM_ID,
-        payer.insecure_clone(),
-    )
-    .with_landing_window(std::time::Duration::ZERO);
-    // With the window over, an address that never appeared can no longer be created: dropped.
+    let (mut chain, series, _payer, _before) = late_chain(&r, print);
     assert!(chain.post(&series, &FEED_XAU, &print).is_err());
+    assert_eq!(chain.orphans().len(), 1);
+    // Past the blockhash's last valid height, the creation can no longer land: dropped.
+    let slot = chain.transport().svm.env.svm.get_sysvar::<Clock>().slot;
+    chain.transport().svm.env.svm.warp_to_slot(slot + 1_000);
+    chain.close_orphans();
     assert!(chain.orphans().is_empty());
 }

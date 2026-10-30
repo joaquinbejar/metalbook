@@ -630,6 +630,22 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    refused before anything is sent; a post that fails after verification closes the
    encoded VAA.
 
+   Release prep (2026-10-30, after the devnet settlement): posting now goes through
+   **`pyth-post` 0.1** (varswap's shared crate, a superset of the former
+   `metalbook_keeper::receiver`, which is removed: chunked writes of any VAA length, a
+   `Transport` trait, and cleanup on failure). `RpcChain` runs over a `pyth_post::Transport`
+   (`RpcTransport` in production) and keeps what `pyth_post::post` reports: an `Orphaned`
+   encoded VAA is closed with `close_if_open` before every later post; an `Uncertain` one
+   (its creation may still land) is kept until its blockhash's last valid block height,
+   closed if it appears, dropped after. One keeper process per payer, enforced with a lock
+   file (two keepers sharing a payer closed each other's in-flight encoded VAAs on devnet:
+   `WrongVaaOwner` three times). `HermesSource` remembers a 404 as a miss that holds only
+   while the feed's latest update is still before that time (codex, #30: a recurring 429
+   had each pass re-ask the same empty slots), and a rate-limited pass makes the next pass
+   start at the series where it stopped. The M7b-2 and M7c LiteSVM tests were ported to
+   `pyth-post` and kept as regression tests, with the fault-injection cases (a send that
+   lands and then reports an error, a send that lands late, one that never lands).
+
    M7b-2 (receiver posting, `metalbook_keeper::receiver`): a Hermes binary update is parsed
    (`"PNAU"`, version 1, a Wormhole Merkle proof: the VAA and each feed's message with its
    20-byte Keccak-160 path, Pyth's big-endian wire format) and posted as the receiver's own
@@ -722,9 +738,9 @@ whenever it is added or touched.
 | `pinocchio-system` | 0.7.0 (0.6.1 used) | `0.6`, decided exception below |
 | `pinocchio-token` | 0.7.0 | `0.7`, see conflict below |
 | `pinocchio-associated-token-account` | 0.4.0 | `0.4`, see conflict below |
-| `optfix` (maker) | unpublished | git, `rev = 204e266` (optfix#11, Black-Scholes-Merton) |
-| `pyth-lite` (varswap) | unpublished | git, `rev = 5cf95aa` |
-| `quotebook-core`, `quotebook-sdk` | unpublished | git, `rev = 578314c` (quotebook M5 SDK) |
+| `optfix` (maker) | 0.1.0 | `0.1` |
+| `pyth-lite` (varswap) | 0.1.0 | `0.1` |
+| `quotebook-core`, `quotebook-sdk` | 0.1.0 | `0.1` (the demo builds quotebook's program from tag `v0.1.0`) |
 | `rust_decimal` (maker) | 1.43.0 | `1.43` |
 | `thiserror` (maker) | 2.0.21 | `2.0` |
 | `optionstratlib` (maker, dev) | 0.23.0 | `0.23` |
@@ -734,6 +750,7 @@ whenever it is added or touched.
 | `serde_json` (keeper, cli) | 1.0.154 | `1.0` |
 | `base64` (keeper; cli dev) | 0.23.1 | `0.23` |
 | `clap` (cli) | 4.6.7 | `4.6` |
+| `pyth-post` (cli) | 0.1.0 | `0.1` (varswap; Pyth receiver posting) |
 | `solana-rpc-client`, `solana-rpc-client-api` (cli) | 4.4.0 (4.3.2 used) | `~4.3`: newest that resolves with the LiteSVM pins, cross-repo decision; tilde so `cargo update` stays on 4.3 |
 | `solana-commitment-config` (cli) | 3.1.1 | `3.1` |
 | `solana-transaction`, `solana-keypair`, `solana-signer` (cli, dev) | 6.0.0, 4.0.0, 4.0.0 | `4.3`, `3.1`, `3.0`: the LiteSVM generation, same exception |

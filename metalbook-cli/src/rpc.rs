@@ -77,44 +77,6 @@ impl Cluster {
             .map_err(|e| self.error(&e))
     }
 
-    /// Encoded VAAs (Wormhole accounts) whose write authority is `authority`: the leftovers of
-    /// posts that failed after verification (`getProgramAccounts` with the account
-    /// discriminator and the authority as filters, no data).
-    ///
-    /// # Errors
-    ///
-    /// [`CliError::Rpc`], for example when the node refuses `getProgramAccounts` on Wormhole.
-    pub fn encoded_vaas_of(&self, authority: &Address) -> Result<Vec<Address>, CliError> {
-        use metalbook_keeper::receiver::{
-            ENCODED_VAA_AUTHORITY_OFFSET, ENCODED_VAA_DISCRIMINATOR, WORMHOLE,
-        };
-        use solana_rpc_client_api::filter::Memcmp;
-        let config = RpcProgramAccountsConfig {
-            filters: Some(vec![
-                RpcFilterType::Memcmp(Memcmp::new_raw_bytes(0, ENCODED_VAA_DISCRIMINATOR.to_vec())),
-                RpcFilterType::Memcmp(Memcmp::new_raw_bytes(
-                    ENCODED_VAA_AUTHORITY_OFFSET,
-                    authority.as_ref().to_vec(),
-                )),
-            ]),
-            account_config: RpcAccountInfoConfig {
-                encoding: Some(UiAccountEncoding::Base64),
-                data_slice: Some(UiDataSliceConfig {
-                    offset: 0,
-                    length: 0,
-                }),
-                commitment: Some(CommitmentConfig::confirmed()),
-                min_context_slot: None,
-            },
-            with_context: None,
-            sort_results: None,
-        };
-        self.client
-            .get_program_ui_accounts_with_config(&WORMHOLE, config)
-            .map(|v| v.into_iter().map(|(address, _)| address).collect())
-            .map_err(|e| self.error(&e))
-    }
-
     fn error(&self, e: &ClientError) -> CliError {
         client_error(e, &self.url)
     }

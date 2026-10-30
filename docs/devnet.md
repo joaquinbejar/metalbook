@@ -180,7 +180,7 @@ Every transaction signature goes into the log below.
    helpers, decoders) and `metalbook-admin` (`metalbook-cli`) for steps 3 and 4. Writer and
    holder steps (`mint`, `close`, `redeem`, `claim_writer`, the closes) use the SDK with any
    Solana client.
-2. ~~M7b-2: Pyth receiver posting~~: done, `metalbook_keeper::receiver` (encoded VAA,
+2. ~~M7b-2: Pyth receiver posting~~: done, now through `pyth-post` 0.1 (encoded VAA,
    `verify_encoded_vaa_v1`, receiver `post_update` for a `Full` update, then
    `sample_settlement` and both closes), tested in LiteSVM against the real programs.
 3. ~~An RPC `Chain` and a keeper binary~~: done, `metalbook_cli::keeper_chain::RpcChain` and
