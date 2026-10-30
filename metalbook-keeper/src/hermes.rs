@@ -344,6 +344,10 @@ pub struct HermesSource<H: HttpGet> {
     /// Until when no request is sent: Hermes counts requests made inside its window against
     /// the key, so retrying (or another series asking) only extends it.
     cooling_until: std::cell::Cell<Option<std::time::Instant>>,
+    /// Least time between two requests (zero: none).
+    min_interval: std::time::Duration,
+    /// When the last request was sent.
+    last_sent: std::cell::Cell<Option<std::time::Instant>>,
     /// Updates already fetched, by query time and by publish time (see
     /// [`HermesSource::first_at_or_after`]).
     cache: std::cell::RefCell<UpdateCache>,
@@ -383,6 +387,13 @@ impl<H: HttpGet> HermesSource<H> {
                 ));
             }
         }
+        if let Some(at) = self.last_sent.get() {
+            let wait = self.min_interval.saturating_sub(at.elapsed());
+            if !wait.is_zero() {
+                std::thread::sleep(wait);
+            }
+        }
+        self.last_sent.set(Some(std::time::Instant::now()));
         let response = self.http.get(url, &[self.config.auth_header()])?;
         if response.status == 429 {
             self.cooling_until
@@ -411,6 +422,8 @@ impl<H: HttpGet> HermesSource<H> {
             // Past Hermes' `retry-after: 60`.
             cooldown: std::time::Duration::from_secs(61),
             cooling_until: std::cell::Cell::new(None),
+            min_interval: std::time::Duration::ZERO,
+            last_sent: std::cell::Cell::new(None),
             cache: std::cell::RefCell::default(),
         }
     }
@@ -422,6 +435,15 @@ impl<H: HttpGet> HermesSource<H> {
     #[must_use]
     pub fn with_cooldown(mut self, cooldown: std::time::Duration) -> Self {
         self.cooldown = cooldown;
+        self
+    }
+
+    /// Paces requests: at least `interval` between two of them (default none). The keeper
+    /// binary uses 10 seconds, at most 6 a minute, under the timestamp endpoint's limit of
+    /// about 10 a minute per key.
+    #[must_use]
+    pub fn with_min_interval(mut self, interval: std::time::Duration) -> Self {
+        self.min_interval = interval;
         self
     }
 
