@@ -1,77 +1,104 @@
+<div align="center">
+
 # MetalBook
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+**Cash-settled European options on gold and silver on Solana**
 
-Cash-settled European options on gold (XAU/USD) and silver (XAG/USD) on Solana, fully
-collateralized and settled in USDC from Pyth prices.
+</div>
 
-**Status:** implemented and reviewed: the domain math, settlement rules and account layouts
-(`metalbook-core`); the on-chain program (`metalbook-program`) for listing, writing,
-settlement from Pyth, redemption, writer claims and rent recovery; the pricing adapter
-(`metalbook-maker`) priced by optfix, with a LiteSVM demo trading a long token through
-QuoteBook; the
-settlement keeper (`metalbook-keeper`) with its Hermes price source; and the admin CLI
-(`metalbook-cli`). Open: Pyth receiver posting, the keeper binary, and
-devnet ([`docs/PLAN.md`](docs/PLAN.md) milestone 7).
-Not audited; not deployed.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/joaquinbejar/metalbook/blob/main/LICENSE)
+[![Stars](https://img.shields.io/github/stars/joaquinbejar/metalbook.svg)](https://github.com/joaquinbejar/metalbook/stargazers)
+[![Issues](https://img.shields.io/github/issues/joaquinbejar/metalbook.svg)](https://github.com/joaquinbejar/metalbook/issues)
+[![PRs](https://img.shields.io/github/issues-pr/joaquinbejar/metalbook.svg)](https://github.com/joaquinbejar/metalbook/pulls)
+[![Solana](https://img.shields.io/badge/Solana-Pinocchio%200.11-9945FF)](https://github.com/anza-xyz/pinocchio)
 
-## Contents
+## MetalBook v0.1.0: Fully Collateralized Metal Options
 
-- [The product](#the-product)
-- [Architecture](#architecture)
-- [Accounts](#accounts)
-- [Instructions](#instructions)
-- [Lifecycle](#lifecycle)
-- [Settlement and its trust assumption](#settlement-and-its-trust-assumption)
-- [Quoting through QuoteBook](#quoting-through-quotebook)
-- [Metals market hours](#metals-market-hours)
-- [Error codes](#error-codes)
-- [Building and testing](#building-and-testing)
+### Table of Contents
+1. [Introduction](#introduction)
+2. [Status](#status)
+3. [Features](#features)
+4. [Architecture](#architecture)
+5. [Collateral Model](#collateral-model)
+6. [Lifecycle](#lifecycle)
+7. [Settlement and its Trust Assumption](#settlement-and-its-trust-assumption)
+8. [Market Hours and Expiry](#market-hours-and-expiry)
+9. [Setup Instructions](#setup-instructions)
+10. [Usage Examples](#usage-examples)
+11. [Testing and Benchmarks](#testing-and-benchmarks)
+12. [Error Codes](#error-codes)
+13. [Contribution and Contact](#contribution-and-contact)
+14. [License](#️-license)
+15. [Related projects](#related-projects)
 
-## The product
+### Introduction
 
-A **series** is one option: underlying (XAU or XAG), kind (call or put), strike `K`, expiry,
-contract multiplier and, for calls, a cap. A **writer** deposits USDC collateral and receives
-**long tokens** (an SPL mint, 0 decimals), one per contract, which can be sold or held. At
-expiry the series fixes a settlement price `S` from Pyth; each long token then pays its payoff
-in USDC and each writer recovers the rest of its collateral.
+MetalBook lists cash-settled European options on gold (XAU/USD) and silver (XAG/USD) on
+Solana. Every position is fully collateralized in USDC and settled from Pyth prices: a
+**writer** deposits the maximum payout of a series and receives **long tokens** (an SPL mint,
+0 decimals, one per contract) that can be held or sold; at expiry the series fixes a
+settlement price from a 30 minute window of canonical Pyth prints, each long token pays its
+payoff in USDC and each writer recovers the rest of its collateral.
 
-Everything is fully collateralized, so no position can ever be undercollateralized and nothing
-on chain depends on a mark price:
+The on-chain program is written with [Pinocchio](https://github.com/anza-xyz/pinocchio)
+(not Anchor): `no_std`, no allocator, zero-copy `bytemuck` accounts, integer arithmetic only,
+checked everywhere, with every rounding direction explicit. Marks are computed off-chain with
+[optfix](https://github.com/joaquinbejar/optfix), long tokens trade through
+[QuoteBook](https://github.com/joaquinbejar/quotebook), and Pyth updates are decoded with
+varswap's `pyth-lite`.
 
-| Kind | Payoff per ounce | Collateral per ounce |
-| --- | --- | --- |
-| Put | `max(K − S, 0)` | `K` |
-| Capped call | `min(max(S − K, 0), cap − K)` | `cap − K` |
+### Status
 
-A **capped call** is economically a call spread `K / cap`: a plain cash-settled call has no
-upper bound and could not be fully collateralized (PLAN 4.1). Caps sit on a grid of
-`K × (1 + x%)` set in the config (for example 10%, 25%, 50%), and the interface should present
-the product as what it is.
+Complete up to devnet; **not deployed and not audited.** Implemented and reviewed:
 
-Amounts are integers in USDC atoms (6 decimals). Collateral per contract is the exact maximum
-payoff times the multiplier, **rounded up**; the payout per long token is the exact payoff,
-**rounded down**; the writer receives the difference, so the rounding dust belongs to the
-writer and the vault empties exactly.
+- the domain math, settlement rules and account layouts (`metalbook-core`);
+- the on-chain program (`metalbook-program`): listing, writing, settlement from Pyth,
+  redemption, writer claims and rent recovery;
+- the pricing adapter (`metalbook-maker`) priced by optfix, with a LiteSVM demo trading a
+  long token through QuoteBook;
+- the settlement keeper (`metalbook-keeper`) with its Hermes price source (M7a, M7b-1);
+- the client SDK (`metalbook-sdk`) and the admin CLI (`metalbook-cli`, binary `metalbook-admin`).
+
+Pending ([`docs/PLAN.md`](docs/PLAN.md), milestone 7; [`docs/devnet.md`](docs/devnet.md),
+What is missing): **M7b-2, Pyth receiver posting** (Wormhole encoded VAA,
+`verify_encoded_vaa_v1`, then the receiver's `post_update` for a `Full` `PriceUpdateV2`), an
+RPC `Chain` for the keeper and a keeper binary, then the devnet run itself.
+
+### Features
+
+#### 1. **Products**
+- **Puts** collateralized by strike: payoff `max(K − S, 0)`, collateral `K` per ounce
+- **Capped calls** (economically a `K / cap` call spread), caps on a configured grid
+- Two underlyings: XAU/USD and XAG/USD, each with its own strike tick, multiplier and feed
+
+#### 2. **Safety by construction**
+- Full collateralization: no margin, no liquidations, nothing on chain depends on a mark
+- Collateral rounded up, payouts rounded down; the writer owns the dust and the vault empties exactly
+- Each series snapshots every config value it uses; config changes affect only later listings
+- Every account re-derived from its seeds with its stored canonical bump; a negative test with a forged account for every validation rule
+- Workspace lints deny panics, `unwrap`, indexing, unchecked and float arithmetic
+
+#### 3. **Oracle settlement**
+- 30 slot window of canonical Pyth prints, unique per slot through `prev_publish_time`
+- A settlement cascade for halts: window, next print chain, partial candidates, fallback, void
+- Permissionless sampling and settlement; a challenge delay `D` lets an honest keeper improve any candidate
+
+#### 4. **Tooling**
+- Rust SDK: a builder for every instruction, PDA helpers and account decoders
+- Admin CLI over JSON-RPC with `--dry-run` and JSON reads
+- Honest settlement keeper with a Hermes price source
+- Deterministic compute unit benchmark (`make bench`)
 
 ## Architecture
 
-| Crate | Role |
-| --- | --- |
-| `metalbook-core` | `no_std`, integers only, never panics. Unit newtypes, series terms, payoff and collateral, the vault ledger of a series (`SeriesLedger`), the settlement rules (canonical window slots, the next-print chain, the fallback and the settlement cascade, `SettlementState`; `accept_print`, the series' acceptance rule for a Pyth print), and the on-chain account layouts (`accounts`), shared by the program, the keeper and SDKs. Property-tested against independent references. |
-| `metalbook-program` | Pinocchio 0.11 program (`cdylib`). Validates every account, restores the core types from account data (rejecting unreachable states), applies the transition, writes state, then makes the token CPIs. |
-| `metalbook-tests` | LiteSVM tests of the program and the deterministic CU benchmark (`docs/benchmarks.md`). |
-| `metalbook-sdk` | Client SDK: a builder for every instruction, PDA helpers and account decoders over the shared layouts. |
-| `metalbook-cli` | `metalbook-admin`, the thin admin CLI over the SDK: `init-config`, `set-config`, `set-calendar`, `create-series` signed with a keypair file and sent through `solana-rpc-client`, `show-*` reads as JSON, `--dry-run`. Parameters file for devnet: `metalbook-cli/devnet-params.json`. |
-| `metalbook-maker` | Off-chain pricing adapter (milestone 5a): payoff-aware marks behind a `VanillaPricer` trait (a put; a capped call as `C(K) − C(cap)`, error bounds summed), two-sided quotes rounded toward the maker, and quotebook quote terms. `OptfixPricer` implements the trait over optfix's fixed-point Black-Scholes-Merton, with an error bound covering optfix's envelope and the decimal conversions. |
-| `metalbook-keeper` | Off-chain settlement keeper (milestone 7a): posts every eligible canonical slot, chain link and the latest eligible fallback within `D`, then settles; `PriceSource` and `Chain` traits; `HermesSource` reads Pyth prints from Hermes (key only from `METALBOOK_HERMES_API_KEY`; auth scheme unverified until the first live call). |
-| `lint-control` | Failing control proving that the workspace lints reject panicking macros (shared with optfix, quotebook and varswap). |
+### Program
 
-External pieces: SPL Token and the associated token program (CPI through `pinocchio-token`
-and `pinocchio-associated-token-account`), and varswap's `pyth-lite` (git, pinned by rev),
-which decodes Pyth `PriceUpdateV2` accounts.
+`metalbook-program` is a Pinocchio 0.11 `cdylib`. Each handler validates every account,
+restores the core types from account data (rejecting unreachable states), applies the
+transition, writes state, and only then makes the token CPIs (SPL Token and the associated
+token program, through `pinocchio-token` and `pinocchio-associated-token-account`).
 
-## Accounts
+### Accounts
 
 | Account | Address | Owner | Size | Holds |
 | --- | --- | --- | --- | --- |
@@ -87,9 +114,15 @@ without implicit padding, and is re-derived from its seeds with its stored canon
 every use. A live series never reads the config again: changing the config affects only series
 listed afterwards.
 
-## Instructions
+### Calendar
 
-Instruction data is a one-byte tag followed by little-endian fields. Each handler documents
+A `Calendar` per metal holds up to 64 strictly increasing expiries, set by the admin with
+`set_calendar` (the list replaces the previous one). `create_series` rejects any expiry not in
+the calendar or sooner than `min_listing_s`. See [Market Hours and Expiry](#market-hours-and-expiry).
+
+### Instructions
+
+Instruction data is a one byte tag followed by little endian fields. Each handler documents
 its accounts and fields in `metalbook-program/src/processor/`; `metalbook-sdk` builds all of
 them (`metalbook_sdk::ix`).
 
@@ -108,7 +141,94 @@ them (`metalbook_sdk::ix`).
 | 10 | `close_series` | anyone | once nothing is owed: closes the vault and the series, rent (and any unowed vault balance) to the `create_series` payer |
 | 11 | `close_position` | anyone | closes a claimed (or empty) writer position, rent to the writer |
 
-Compute units of each: [`docs/benchmarks.md`](docs/benchmarks.md).
+### Keeper
+
+`metalbook-keeper` (off-chain, std) implements the honest keeper of the trust assumption.
+Each `Keeper::tick` reads a series with the program's own layouts, posts the canonical print
+of every empty window slot, every missing chain link in order and the latest fallback, then
+calls `settle` as soon as the cascade allows. Every candidate is first checked with
+`metalbook_core::accept_print`, the same rule the program applies: an ineligible slot is
+skipped, an ineligible chain link ends the chain there, and the fallback steps back to the
+latest eligible print. A failed post is benign only if the series, re-read right after,
+already holds the candidate (another keeper won the race); any other failure ends the tick
+with an error and **without settling**. Run `tick` more often than `D`. Prices come from a
+`PriceSource` trait (`HermesSource` in production, `TapeSource` in tests) and transactions
+from a `Chain` trait (LiteSVM in tests; the RPC implementation is pending).
+
+### Hermes client
+
+`HermesSource` implements `PriceSource` over Hermes `GET /v2/updates/price/{t}` (the first
+update with `publish_time >= t`) and `/v2/updates/price/latest` as the anchor. HTTP is one
+blocking crate, `ureq` 3.5 with rustls (no native TLS), behind an `HttpGet` trait so tests
+replay fixtures. The API key is read **only** from the environment variable
+`METALBOOK_HERMES_API_KEY` (`HermesConfig::from_env`); it is never read from a file, `Debug`
+redacts it, and errors never carry response content. The auth scheme defaults to
+`Authorization: Bearer <key>`; `METALBOOK_HERMES_AUTH=header:<name>` switches to a named
+header, and `METALBOOK_HERMES_URL` overrides the base URL. The scheme is unverified until the
+first live call.
+
+### SDK
+
+`metalbook-sdk` builds every instruction (`metalbook_sdk::ix`), derives every PDA
+(`metalbook_sdk::pda`: `config`, `calendar`, `series`, `long_mint`, `position`, `ata`,
+`program_data`) and decodes every account (`metalbook_sdk::decode`) through
+`metalbook_core::accounts`. LiteSVM tests check each builder byte for byte against an
+independent encoding and run a full lifecycle using only the SDK.
+
+### CLI
+
+`metalbook-admin` (crate `metalbook-cli`) is a thin admin CLI over the SDK: `init-config`,
+`set-config`, `set-calendar` and `create-series`, signed with a Solana keypair file
+(`--keypair` or `METALBOOK_KEYPAIR`) and sent over JSON-RPC (`--url` or `SOLANA_URL`), plus
+`show-config`, `show-calendar`, `show-series` (decoded, as JSON) and an offline
+`series-address`. `--dry-run` prints the instruction instead of sending it. The RPC URL never
+appears in errors, `Debug` or `--help`, and keypair files are never printed.
+
+### Quoting through QuoteBook
+
+Long tokens trade on [QuoteBook](https://github.com/joaquinbejar/quotebook) as a long mint /
+USDC series (one long token per base lot). A maker marks a series with `metalbook-maker`
+(`mark`: a put, or a capped call as the call spread `C(K) − C(cap)`, scaled by the
+multiplier; no marks while the market is closed or once the settlement window has started),
+turns the mark into a bid and an ask rounded toward itself (`quote_atoms`, exact integer
+tick math), and builds quotebook quote terms (`quote_terms`). A taker fills through
+quotebook's signed-quote `settle`. `metalbook-tests/tests/quotebook_demo.rs` runs the whole
+path in LiteSVM, from minting long tokens to the quotebook fill, the Pyth settlement and the
+redemption.
+
+### Workspace crates
+
+| Crate | Role |
+| --- | --- |
+| `metalbook-core` | `no_std`, integers only, never panics: unit newtypes, series terms, payoff and collateral, the vault ledger (`SeriesLedger`), the settlement rules and `accept_print`, and the on-chain account layouts shared by the program, the keeper and the SDK. Property tested against independent references. |
+| `metalbook-program` | The Pinocchio program (`cdylib`). |
+| `metalbook-tests` | LiteSVM tests of the program, the QuoteBook demo, the CLI tests and the CU benchmark. |
+| `metalbook-sdk` | Instruction builders, PDA helpers and account decoders. |
+| `metalbook-cli` | `metalbook-admin`, the admin CLI. Devnet parameters: `metalbook-cli/devnet-params.json`. |
+| `metalbook-maker` | Off-chain pricing adapter: payoff aware marks behind a `VanillaPricer` trait (`OptfixPricer` over optfix), two sided quotes rounded toward the maker, and quotebook quote terms. |
+| `metalbook-keeper` | Off-chain settlement keeper and Hermes price source. |
+| `lint-control` | Failing control proving the workspace lints reject panicking macros (shared with optfix, quotebook and varswap). |
+
+## Collateral Model
+
+A **series** is one option: underlying (XAU or XAG), kind (call or put), strike `K`, expiry,
+contract multiplier and, for calls, a cap.
+
+| Kind | Payoff per ounce | Collateral per ounce |
+| --- | --- | --- |
+| Put | `max(K − S, 0)` | `K` |
+| Capped call | `min(max(S − K, 0), cap − K)` | `cap − K` |
+
+**Puts are collateralized by strike**: the worst case is `S = 0`, so `K` per ounce covers it.
+**Calls are capped**: a plain cash-settled call has no upper bound and could not be fully
+collateralized, so a call pays at most `cap − K`; it is economically a call spread `K / cap`,
+and the interface should present it as such. Caps sit on a grid of `K × (1 + x%)` set in the
+config (for example 10%, 25%, 50%).
+
+Amounts are integers in USDC atoms (6 decimals); multipliers are in milli-ounces. Collateral
+per contract is the exact maximum payoff times the multiplier, **rounded up**; the payout per
+long token is the exact payoff, **rounded down**; the writer receives the difference, so the
+rounding dust belongs to the writer and the vault empties exactly.
 
 ## Lifecycle
 
@@ -180,33 +300,7 @@ keeper is run by the protocol (`metalbook-keeper`, milestone 7) and posts every 
 print from Hermes as soon as it exists; anyone else can run one, since every instruction it
 needs is permissionless.
 
-### The keeper
-
-`metalbook-keeper` implements that honest keeper. Each `Keeper::tick` reads a series with the
-program's own layouts, posts the canonical print of every empty window slot, every missing
-chain link in order and the latest fallback, then calls `settle` as soon as the cascade
-allows. A canonical print the series would reject (`accept_print`) is skipped: its slot stays
-empty, an ineligible chain link ends the chain there, and the fallback steps back to the
-latest eligible print. A failed post is benign only if the series, re-read right after,
-already holds the candidate (another keeper won the race); any other failure ends the tick
-with an error and without settling, so an outage can never make the keeper settle a subset
-it knew how to complete. Run `tick` more often than `D`. Prices come from a `PriceSource`
-(Hermes in production, tapes in tests) and transactions from a `Chain` (RPC in production,
-LiteSVM in tests).
-
-## Quoting through QuoteBook
-
-Long tokens trade on [QuoteBook](https://github.com/joaquinbejar/quotebook) as a long mint /
-USDC series (one long token per base lot). A maker marks a series with `metalbook-maker`
-(`mark`: a put, or a capped call as the call spread `C(K) − C(cap)`, scaled by the
-multiplier; no marks while the market is closed or once the settlement window has started),
-turns the mark into a bid and an ask rounded toward itself (`quote_atoms`, exact integer
-tick math), and builds quotebook quote terms (`quote_terms`). A taker fills through
-quotebook's signed-quote `settle`. `metalbook-tests/tests/quotebook_demo.rs` runs the whole
-path in LiteSVM, from minting long tokens to the quotebook fill, the Pyth settlement and the
-redemption.
-
-## Metals market hours
+## Market Hours and Expiry
 
 Pyth's XAU/USD and XAG/USD feeds follow the metals' trading schedule (New York time: Sunday
 18:00 to Friday 17:00, with a daily pause from 17:00 to 18:00 and holiday closures), and do
@@ -222,6 +316,128 @@ not update while the market is closed. Hence (PLAN 4.4):
   closed market never blocks minting, closing, redeeming or claiming. Marks and quoting
   (milestone 5) widen or stop while the market is closed and from the start of the
   settlement window.
+
+## Setup Instructions
+
+Requirements: stable Rust (`rust-toolchain.toml`) and the Agave toolchain (`cargo build-sbf`).
+MetalBook is not published on crates.io; use it from git.
+
+```sh
+git clone https://github.com/joaquinbejar/metalbook.git
+cd metalbook
+make program            # target/deploy/metalbook_program.so (fails on SBF frames above 4 KiB)
+make quotebook-program  # quotebook's program at the pinned rev, for the demo
+make test
+```
+
+As a dependency (pin a rev, as the sibling repos do):
+
+```toml
+[dependencies]
+metalbook-sdk = { git = "https://github.com/joaquinbejar/metalbook", rev = "<COMMIT>" }
+```
+
+## Usage Examples
+
+### Admin CLI
+
+```sh
+export SOLANA_URL=https://api.devnet.solana.com
+export METALBOOK_PROGRAM_ID=<PROGRAM_ID>
+export METALBOOK_KEYPAIR=~/keys/metalbook-devnet-authority.json   # outside the repo
+alias metalbook-admin='cargo run -q -p metalbook-cli --bin metalbook-admin --'
+
+# Config, signed by the program's upgrade authority (who becomes admin).
+metalbook-admin init-config --usdc-mint <USDC_MINT> --params metalbook-cli/devnet-params.json --dry-run
+metalbook-admin init-config --usdc-mint <USDC_MINT> --params metalbook-cli/devnet-params.json
+metalbook-admin show-config
+
+# Calendar and a series.
+metalbook-admin set-calendar --underlying xau --expiries <T1>,<T2>
+metalbook-admin show-calendar --underlying xau
+metalbook-admin create-series --underlying xau --kind put --strike 2400 --expiry <T1>
+metalbook-admin create-series --underlying xau --kind call --strike 2400 --cap 3000 --expiry <T1>
+metalbook-admin show-series <SERIES>
+
+# Offline: the address of some terms.
+metalbook-admin series-address --underlying xau --kind put --strike 2400 --expiry <T1> --series-multiplier 1000
+```
+
+Later config changes: `show-config`, edit its `params` into a file, then
+`set-config --params <FILE>` (add `--new-admin <KEY>` to hand admin over).
+
+### SDK: a writer mints contracts
+
+```rust
+use metalbook_sdk::{ix, pda};
+use metalbook_sdk::pda::SeriesSpec;
+
+// An XAU put, strike 2400 USD, 1 oz contracts.
+let spec = SeriesSpec {
+    underlying: 0,              // XAU
+    kind: 1,                    // put
+    strike: 2_400_000_000,      // USDC atoms per ounce
+    expiry,                     // a calendar expiry, Unix seconds
+    cap: 0,                     // puts have no cap
+    multiplier: 1_000,          // milli-ounces
+};
+let (series, _bump) = pda::series(&program_id, &spec);
+let instruction = ix::mint(&program_id, &writer, &series, &usdc_mint, 5);
+// Sign and send with any Solana client; the writer deposits 5 × max_payout.
+```
+
+`ix::close`, `ix::redeem`, `ix::claim_writer`, `ix::close_series` and `ix::close_position`
+cover the rest of the writer and holder flows; `metalbook_sdk::decode::series` reads a series
+account back.
+
+### Hermes check
+
+```sh
+METALBOOK_HERMES_API_KEY=<your key> cargo run -p metalbook-keeper --example hermes -- --live
+```
+
+Fetches one XAU print and exits with status 2 and a clear message when the key is not set.
+
+## Testing and Benchmarks
+
+```sh
+make pre-push   # fmt check, clippy -D warnings, lint and program controls, SBF build, all tests, docs
+make test       # unit, property and LiteSVM tests (needs both programs built first)
+make bench      # regenerate docs/benchmarks.md
+```
+
+Tests: proptest for the core math (collateral covers the maximum payout and the vault empties
+exactly across random histories, prices and claim orders), LiteSVM for the program with a
+negative test per validation rule, the QuoteBook demo (`metalbook-tests/tests/quotebook_demo.rs`),
+the CLI against the program (`metalbook-tests/tests/cli.rs`), and Hermes fixtures (no live
+calls in tests).
+
+Compute units, measured by `make bench` in LiteSVM (sBPF v3, CPIs included, deterministic);
+source: [`docs/benchmarks.md`](docs/benchmarks.md).
+
+| Instruction | Case | CU |
+| --- | --- | ---: |
+| `init_config` | creates the config | 6749 |
+| `set_config` | same admin | 942 |
+| `set_calendar` | creates the calendar, 2 expiries | 6582 |
+| `set_calendar` | replaces the list, 64 expiries | 1311 |
+| `create_series` | put | 29600 |
+| `create_series` | capped call | 34218 |
+| `mint` | first mint, creates the position | 9246 |
+| `mint` | existing position | 4829 |
+| `close` | partial | 4793 |
+| `close` | to zero | 4793 |
+| `sample_settlement` | first print: slot 0 and fallback, expires the series | 2616 |
+| `sample_settlement` | window slot and fallback | 2621 |
+| `sample_settlement` | next-print link | 2505 |
+| `settle` | full window (30 slots) | 3176 |
+| `redeem` | 1 long token, in the money | 4062 |
+| `claim_writer` | residual of 1 contract | 3190 |
+| `close_position` | claimed position, rent to the writer | 356 |
+| `close_series` | vault and series closed, rent to the payer | 2880 |
+| `settle` | void | 2248 |
+
+Marks and quotes are computed off-chain, so no instruction prices an option.
 
 ## Error codes
 
@@ -278,23 +494,51 @@ Every failure is `ProgramError::Custom(code)`. Codes never change; new ones are 
 | 146 | `InvalidRentPayer` | The rent destination is not the account that paid it |
 | 147 | `PositionNotClaimed` | Close a writer position that has not claimed |
 
-## Building and testing
+## Contribution and Contact
 
-Requirements: stable Rust and the Agave toolchain (`cargo build-sbf`).
+We welcome contributions to this project! If you would like to contribute, please follow these steps:
 
-```sh
-make pre-push   # fmt check, clippy -D warnings, lint and program controls, SBF build, all tests, docs
-make program    # build target/deploy/metalbook_program.so (fails on SBF frames above 4 KiB)
-make quotebook-program  # build quotebook's program at the pinned rev, for the demo
-make test       # unit, property and LiteSVM tests (needs both programs built first)
-make bench      # regenerate docs/benchmarks.md
-```
+1. Fork the repository.
+2. Create a new branch for your feature or bug fix.
+3. Follow the project rules in [`rules/global_rules.md`](https://github.com/joaquinbejar/metalbook/blob/main/rules/global_rules.md)
+   and run `make pre-push`, which must pass with zero warnings.
+4. Make your changes and ensure that the project still builds and all tests pass.
+5. Commit your changes and push your branch to your forked repository.
+6. Submit a pull request to the main repository.
 
-Devnet: [`docs/devnet.md`](docs/devnet.md) (runbook, not yet executed).
+If you have any questions, issues, or would like to provide feedback, please feel free to contact the project maintainer:
 
-Project rules (no panics outside tests, latest stable dependencies, checked arithmetic,
-explicit rounding, negative tests with forged accounts): [`rules/global_rules.md`](rules/global_rules.md).
 
-## License
+### **Contact Information**
 
-MIT
+- **Author**: Joaquín Béjar García <https://joaquinbejar.capitaldelta.co/>
+- **Email**: jb@taunais.com
+- **Telegram**: [@joaquin_bejar](https://t.me/joaquin_bejar)
+- **Repository**: <https://github.com/joaquinbejar/metalbook>
+- **Documentation**: <https://github.com/joaquinbejar/metalbook/tree/main/docs>
+
+We appreciate your interest and look forward to your contributions!
+
+## ✍️ License
+
+Licensed under **MIT** license
+
+<!-- related-projects:start -->
+## Related projects
+
+Repositories by the same author that this project depends on, and repositories that depend on it.
+
+### Depends on
+
+| Repository | Description |
+|------------|-------------|
+| [OptionStratLib](https://github.com/joaquinbejar/OptionStratLib) · [crates.io](https://crates.io/crates/optionstratlib) | Rust library for options trading and strategy development; metalbook-maker uses it as the independent pricing reference in tests. |
+| [optfix](https://github.com/joaquinbejar/optfix) | Fixed-point option pricing for Solana programs: no_std, allocation-free Black-Scholes, greeks and implied volatility, measured in compute units. |
+| [quotebook](https://github.com/joaquinbejar/quotebook) | RFQ on Solana: maker quotes signed off-chain with ed25519, verified and settled atomically on-chain by a Pinocchio program. |
+| [varswap](https://github.com/joaquinbejar/varswap) | Realized variance accumulated on-chain from Pyth prices, and variance swaps settled against it, on Solana; metalbook reuses its pyth-lite crate. |
+
+### Used by
+
+None yet.
+
+<!-- related-projects:end -->
