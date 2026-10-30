@@ -64,7 +64,8 @@ Implemented and reviewed:
 
 Milestone 7 is done: the full lifecycle (listing, minting, settlement from live Pyth prints
 through Wormhole and the Pyth receiver, redemption and writer claims) ran on devnet on
-2026-10-30. Pending: the void path on devnet (Nov 6) and the 0.1.0 release.
+2026-10-30. Released as 0.1.0 (`metalbook-core` and `metalbook-sdk` on crates.io). Pending: the void
+path on devnet (Nov 6).
 
 ### Features
 
@@ -384,7 +385,6 @@ cargo run --release -p metalbook-cli --bin metalbook-keeper
 ## Setup Instructions
 
 Requirements: stable Rust (`rust-toolchain.toml`) and the Agave toolchain (`cargo build-sbf`).
-MetalBook is not published on crates.io; use it from git.
 
 ```sh
 git clone https://github.com/joaquinbejar/metalbook.git
@@ -394,12 +394,19 @@ make quotebook-program  # quotebook's program at the pinned rev, for the demo
 make test
 ```
 
-As a dependency (pin a rev, as the sibling repos do):
+### Install
+
+`metalbook-core` (the domain model and account layouts, `no_std`) and `metalbook-sdk`
+(instruction builders, PDAs, decoders) are on crates.io:
 
 ```toml
 [dependencies]
-metalbook-sdk = { git = "https://github.com/joaquinbejar/metalbook", rev = "<COMMIT>" }
+metalbook-core = "0.1"
+metalbook-sdk = "0.1"
 ```
+
+The program, the pricing adapter, the keeper and the CLI are used from the repository
+([release v0.1.0](https://github.com/joaquinbejar/metalbook/releases/tag/v0.1.0)).
 
 ## Usage Examples
 
