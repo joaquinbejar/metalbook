@@ -280,6 +280,43 @@ pub fn mint_ixs<R: Rpc>(
     ])
 }
 
+/// `redeem` of `contracts` long tokens by `holder` (the signer), paid to its USDC account at
+/// the series' payout. The series' USDC mint is read from it.
+///
+/// # Errors
+///
+/// As [`read_series`].
+pub fn redeem_ix<R: Rpc>(
+    rpc: &mut R,
+    program_id: &Address,
+    holder: &Address,
+    series: &Address,
+    contracts: u64,
+) -> Result<Instruction, CliError> {
+    let s = read_series(rpc, program_id, series)?;
+    let usdc_mint = Address::new_from_array(s.usdc_mint);
+    Ok(ix::redeem(
+        program_id, holder, series, &usdc_mint, contracts,
+    ))
+}
+
+/// `claim_writer`: `writer` (the signer) takes its residual collateral after settlement, or
+/// all of it after a void.
+///
+/// # Errors
+///
+/// As [`read_series`].
+pub fn claim_writer_ix<R: Rpc>(
+    rpc: &mut R,
+    program_id: &Address,
+    writer: &Address,
+    series: &Address,
+) -> Result<Instruction, CliError> {
+    let s = read_series(rpc, program_id, series)?;
+    let usdc_mint = Address::new_from_array(s.usdc_mint);
+    Ok(ix::claim_writer(program_id, writer, series, &usdc_mint))
+}
+
 /// The terms of a new series as given on the command line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SeriesArgs {

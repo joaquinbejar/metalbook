@@ -227,3 +227,36 @@ fn the_admin_cli_mints_for_a_writer_creating_its_long_account() {
     let long = pda::ata(&writer.pubkey(), &pda::long_mint(&PROGRAM_ID, &series).0);
     assert_eq!(env.token_balance(&long), 3);
 }
+
+#[test]
+fn the_admin_cli_redeems_and_claims_after_settlement() {
+    let mut env = Env::new();
+    let args = common::SeriesArgs::xau_put(4_000);
+    let series = env.create_series(args);
+    let writer = env.writer(8_000); // two contracts of a 4000 put at 1 oz
+    let mut rpc = Svm(&mut env);
+    let ixs = metalbook_cli::mint_ixs(&mut rpc, &PROGRAM_ID, &writer.pubkey(), &series, 2).unwrap();
+    submit(&mut rpc, &ixs, &writer).unwrap();
+    // Not settled yet: the program refuses both.
+    let ix = metalbook_cli::redeem_ix(&mut rpc, &PROGRAM_ID, &writer.pubkey(), &series, 1).unwrap();
+    assert!(submit(&mut rpc, &[ix], &writer).is_err());
+    // Settles at 3600: each long token pays 400 USD, each written contract leaves 3600.
+    env.settle_with_window(args, &[3_600_000; 30]);
+    let usdc = pda::ata(&writer.pubkey(), &USDC_MINT);
+    let mut rpc = Svm(&mut env);
+    let ix = metalbook_cli::redeem_ix(&mut rpc, &PROGRAM_ID, &writer.pubkey(), &series, 2).unwrap();
+    submit(&mut rpc, &[ix], &writer).unwrap();
+    assert_eq!(env.token_balance(&usdc), 800 * 1_000_000);
+    let mut rpc = Svm(&mut env);
+    let ix =
+        metalbook_cli::claim_writer_ix(&mut rpc, &PROGRAM_ID, &writer.pubkey(), &series).unwrap();
+    submit(&mut rpc, &[ix], &writer).unwrap();
+    // Everything deposited is back with the writer, who was both sides.
+    assert_eq!(env.token_balance(&usdc), 8_000 * 1_000_000);
+    let shown = series_json(
+        &series,
+        &read_series(&mut Svm(&mut env), &PROGRAM_ID, &series).unwrap(),
+    );
+    assert_eq!(shown["state"], "settled");
+    assert_eq!(shown["vault_owed_atoms"], 0);
+}
