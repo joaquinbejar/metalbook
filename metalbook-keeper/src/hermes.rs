@@ -339,8 +339,11 @@ fn hex(bytes: &[u8; 32]) -> String {
 pub struct HermesSource<H: HttpGet> {
     config: HermesConfig,
     http: H,
-    /// Waits before each retry of a rate-limited (429) request.
-    backoff: Vec<std::time::Duration>,
+    /// How long no request is sent after a 429.
+    cooldown: std::time::Duration,
+    /// Until when no request is sent: Hermes counts requests made inside its window against
+    /// the key, so retrying (or another series asking) only extends it.
+    cooling_until: std::cell::Cell<Option<std::time::Instant>>,
     /// Updates already fetched, by query time and by publish time (see
     /// [`HermesSource::first_at_or_after`]).
     cache: std::cell::RefCell<UpdateCache>,
@@ -373,14 +376,20 @@ impl<H: HttpGet> HermesSource<H> {
         url: &str,
         feed: &[u8; 32],
     ) -> Result<Option<HermesUpdate>, KeeperError> {
-        // Hermes limits bursts (429): retry after each backoff step, then give up.
-        let mut response = self.http.get(url, &[self.config.auth_header()])?;
-        for wait in &self.backoff {
-            if response.status != 429 {
-                break;
+        if let Some(until) = self.cooling_until.get() {
+            if std::time::Instant::now() < until {
+                return Err(KeeperError::Source(
+                    "Hermes rate limit: cooling down, request not sent".into(),
+                ));
             }
-            std::thread::sleep(*wait);
-            response = self.http.get(url, &[self.config.auth_header()])?;
+        }
+        let response = self.http.get(url, &[self.config.auth_header()])?;
+        if response.status == 429 {
+            self.cooling_until
+                .set(std::time::Instant::now().checked_add(self.cooldown));
+            return Err(KeeperError::Source(
+                "Hermes returned HTTP 429 (rate limited); cooling down".into(),
+            ));
         }
         match response.status {
             200 => parse_update(&response.body, feed).map(Some),
@@ -399,17 +408,20 @@ impl<H: HttpGet> HermesSource<H> {
         Self {
             config,
             http,
-            // One wait past Hermes' `retry-after: 60`: retrying inside the window only extends it.
-            backoff: vec![std::time::Duration::from_secs(61)],
+            // Past Hermes' `retry-after: 60`.
+            cooldown: std::time::Duration::from_secs(61),
+            cooling_until: std::cell::Cell::new(None),
             cache: std::cell::RefCell::default(),
         }
     }
 
-    /// Replaces the waits before retrying a rate-limited (429) request (default one wait of 61
-    /// seconds, past Hermes' one-minute window; empty: no retry).
+    /// Replaces how long no request is sent after a 429 (default 61 seconds, past Hermes'
+    /// one-minute window). Every request in that time fails at once without reaching Hermes,
+    /// so a keeper pass over many series does not keep the key inside the window; what was
+    /// fetched stays cached and the next pass resumes.
     #[must_use]
-    pub fn with_backoff(mut self, backoff: Vec<std::time::Duration>) -> Self {
-        self.backoff = backoff;
+    pub fn with_cooldown(mut self, cooldown: std::time::Duration) -> Self {
+        self.cooldown = cooldown;
         self
     }
 

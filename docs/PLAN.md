@@ -621,8 +621,10 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    first update at or after `t` is fixed once it exists), indexed by query time and by
    publish time (first-of-second updates only), reuses `/latest` for 10 seconds so every
    series of a pass shares one anchor, anchors on `/latest` whenever it is not after the
-   asked time, and retries a 429 once after 61 seconds (retrying inside Hermes' one-minute
-   window only extends it). LiteSVM tests drive
+   asked time, and after a 429 sends nothing for 61 seconds: every request in that time fails
+   at once without reaching Hermes (the first live window, 2026-10-30 19:30Z, showed that a
+   per-request retry let each of 23 series ask again and kept the key inside Hermes'
+   one-minute window), and the next pass resumes from the cache. LiteSVM tests drive
    `Keeper::tick` through `RpcChain` and the real receiver and Wormhole: after expiry the
    fallback is posted and the payer pays only signatures, before expiry nothing is posted; an update that is not the chosen print is
    refused before anything is sent; a post that fails after verification closes the

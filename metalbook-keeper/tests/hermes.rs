@@ -212,7 +212,7 @@ fn test_status_handling() {
 }
 
 #[test]
-fn test_rate_limited_requests_are_retried_then_given_up() {
+fn test_a_429_starts_a_cooldown_during_which_nothing_is_sent() {
     let print = PrintMsg {
         price: 1,
         conf: 0,
@@ -220,23 +220,34 @@ fn test_rate_limited_requests_are_retried_then_given_up() {
         publish_time: 100,
         prev_publish_time: 99,
     };
-    let zero = vec![std::time::Duration::ZERO; 3];
-    // Two 429s, then the answer: three requests, success.
+    // One 429: that request fails, and so does every request during the cooldown, without
+    // reaching Hermes.
     let fake = FakeHermes::new(vec![print]);
-    fake.throttled.set(2);
-    let r = HermesSource::new(config(), &fake)
-        .with_backoff(zero.clone())
-        .first_at_or_after(&FEED, 100);
-    assert_eq!(r.unwrap().unwrap().print, print);
-    assert_eq!(fake.seen.borrow().len(), 3);
-    // Rate limited beyond the backoff: one request plus one per step, then an error.
-    let fake = FakeHermes::new(vec![print]);
-    fake.throttled.set(10);
-    let r = HermesSource::new(config(), &fake)
-        .with_backoff(zero)
-        .first_at_or_after(&FEED, 100);
+    fake.throttled.set(1);
+    let source =
+        HermesSource::new(config(), &fake).with_cooldown(std::time::Duration::from_secs(3_600));
+    let r = source.first_at_or_after(&FEED, 100);
     assert!(format!("{r:?}").contains("429"), "{r:?}");
-    assert_eq!(fake.seen.borrow().len(), 4);
+    for _ in 0..5 {
+        let r = source.first_at_or_after(&FEED, 100);
+        assert!(format!("{r:?}").contains("cooling down"), "{r:?}");
+    }
+    assert!(source.latest(&FEED).is_err());
+    assert_eq!(
+        fake.seen.borrow().len(),
+        1,
+        "only the request that got the 429"
+    );
+    // After the cooldown the next request goes out and succeeds.
+    let fake = FakeHermes::new(vec![print]);
+    fake.throttled.set(1);
+    let source = HermesSource::new(config(), &fake).with_cooldown(std::time::Duration::ZERO);
+    assert!(source.first_at_or_after(&FEED, 100).is_err());
+    assert_eq!(
+        source.first_at_or_after(&FEED, 100).unwrap().unwrap().print,
+        print
+    );
+    assert_eq!(fake.seen.borrow().len(), 2);
 }
 
 /// The tape of the keeper tests' shape: a print every 1 to 3 seconds, a same-second repeat
