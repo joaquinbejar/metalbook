@@ -486,3 +486,15 @@ fn test_requests_are_paced() {
     assert!(start.elapsed() >= std::time::Duration::from_millis(400));
     assert_eq!(fake.seen.borrow().len(), 3);
 }
+
+#[test]
+fn test_future_times_cost_no_request() {
+    let fake = FakeHermes::new(tape());
+    let source = HermesSource::new(config(), &fake);
+    // The keeper asks for every slot of a running window; those after `now` send nothing.
+    for t in 13_000..13_010 {
+        assert_eq!(source.canonical_at(&FEED, t, 10, 12_000).unwrap(), None);
+        assert_eq!(source.next_after(&FEED, t, 12_000).unwrap(), None);
+    }
+    assert!(fake.seen.borrow().is_empty());
+}

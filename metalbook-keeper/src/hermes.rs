@@ -525,6 +525,12 @@ impl<H: HttpGet> HermesSource<H> {
         t: i64,
         now: i64,
     ) -> Result<Option<PrintMsg>, KeeperError> {
+        // Nothing at or after a time still in the future can be published by `now`: no
+        // request (the keeper walks every slot of the window, most of them future while the
+        // window runs, and Hermes' timestamp endpoint is rate limited).
+        if t > now {
+            return Ok(None);
+        }
         Ok(self
             .first_at_or_after(feed, t)?
             .map(|u| u.print)
