@@ -23,13 +23,14 @@
 6. [Lifecycle](#lifecycle)
 7. [Settlement and its Trust Assumption](#settlement-and-its-trust-assumption)
 8. [Market Hours and Expiry](#market-hours-and-expiry)
-9. [Setup Instructions](#setup-instructions)
-10. [Usage Examples](#usage-examples)
-11. [Testing and Benchmarks](#testing-and-benchmarks)
-12. [Error Codes](#error-codes)
-13. [Contribution and Contact](#contribution-and-contact)
-14. [License](#️-license)
-15. [Related projects](#related-projects)
+9. [On devnet](#on-devnet)
+10. [Setup Instructions](#setup-instructions)
+11. [Usage Examples](#usage-examples)
+12. [Testing and Benchmarks](#testing-and-benchmarks)
+13. [Error Codes](#error-codes)
+14. [Contribution and Contact](#contribution-and-contact)
+15. [License](#️-license)
+16. [Related projects](#related-projects)
 
 ### Introduction
 
@@ -49,20 +50,20 @@ varswap's `pyth-lite`.
 
 ### Status
 
-Complete up to devnet; **not deployed and not audited.** Implemented and reviewed:
+Deployed on **devnet** (see [On devnet](#on-devnet)); **not audited, not on mainnet.**
+Implemented and reviewed:
 
 - the domain math, settlement rules and account layouts (`metalbook-core`);
 - the on-chain program (`metalbook-program`): listing, writing, settlement from Pyth,
   redemption, writer claims and rent recovery;
 - the pricing adapter (`metalbook-maker`) priced by optfix, with a LiteSVM demo trading a
   long token through QuoteBook;
-- the settlement keeper (`metalbook-keeper`) with its Hermes price source (M7a, M7b-1);
+- the settlement keeper (`metalbook-keeper`) with its Hermes price source and Pyth receiver
+  posting through Wormhole (M7a, M7b);
 - the client SDK (`metalbook-sdk`) and the admin CLI (`metalbook-cli`, binary `metalbook-admin`).
 
-Pending ([`docs/PLAN.md`](docs/PLAN.md), milestone 7; [`docs/devnet.md`](docs/devnet.md),
-What is missing): **M7b-2, Pyth receiver posting** (Wormhole encoded VAA,
-`verify_encoded_vaa_v1`, then the receiver's `post_update` for a `Full` `PriceUpdateV2`), an
-RPC `Chain` for the keeper and a keeper binary, then the devnet run itself.
+Pending ([`docs/PLAN.md`](docs/PLAN.md), milestone 7): the keeper binary (M7c, in review)
+and the first settlement on devnet, the Oct 30 series at 20:00Z.
 
 ### Features
 
@@ -316,6 +317,62 @@ not update while the market is closed. Hence (PLAN 4.4):
   closed market never blocks minting, closing, redeeming or claiming. Marks and quoting
   (milestone 5) widen or stop while the market is closed and from the start of the
   settlement window.
+
+## On devnet
+
+Program [`FPPuou5kgSp6tbwQRwKPBNhrMyf1Xb8n2ib3Yqpbsuwg`](https://explorer.solana.com/address/FPPuou5kgSp6tbwQRwKPBNhrMyf1Xb8n2ib3Yqpbsuwg?cluster=devnet),
+deployed on 2026-10-30 from commit `93f175a`, collateral in Circle's devnet USDC
+(`4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`). Every address and signature is in
+[`docs/devnet-log.md`](docs/devnet-log.md); the runbook is [`docs/devnet.md`](docs/devnet.md).
+
+| Account | Address |
+| --- | --- |
+| Config | [`CgJYkT8Q3KnsAMj8gPJpwUfabiu66ezLQ4NjxVsjMZwx`](https://explorer.solana.com/address/CgJYkT8Q3KnsAMj8gPJpwUfabiu66ezLQ4NjxVsjMZwx?cluster=devnet) |
+| XAU calendar | [`2p6wAvNefHwGsTDkMMLU5JpSE2iPZyekEfBLXcstFpwh`](https://explorer.solana.com/address/2p6wAvNefHwGsTDkMMLU5JpSE2iPZyekEfBLXcstFpwh?cluster=devnet) |
+| XAG calendar | [`Cy6qBFFPRymJNmQwDkhaNoggf3vk2WyDCBbD9e5K3FUY`](https://explorer.solana.com/address/Cy6qBFFPRymJNmQwDkhaNoggf3vk2WyDCBbD9e5K3FUY?cluster=devnet) |
+
+Calendars: weekly Fridays at 16:00 New York from Oct 30 to Dec 18 (Nov 27 and Dec 25 left
+out). Series: strikes at the money ±5% in $50 (XAU) and $1 (XAG) steps, each a put and a
+capped call with the cap 10% above the strike. Examples:
+
+| Series | Terms | Account |
+| --- | --- | --- |
+| XAU put | strike 3800, Oct 30, 1 oz | [`2CpwYjJVt33VQ6b8NBHSiqYxJASnk2ZtWvv3gznpswU5`](https://explorer.solana.com/address/2CpwYjJVt33VQ6b8NBHSiqYxJASnk2ZtWvv3gznpswU5?cluster=devnet) |
+| XAU capped call | 3800 to 4180, Oct 30, 1 oz | [`BvhmabWKVnDWacexfQw58U1uGbU3HLDV4AfHKquuaBbi`](https://explorer.solana.com/address/BvhmabWKVnDWacexfQw58U1uGbU3HLDV4AfHKquuaBbi?cluster=devnet) |
+| XAG capped call, written | 48 to 52.8, Oct 30, 1 oz (devnet faucet sizing) | [`9d1C6cKzUMCTh7Uj5jLQmF1FNLBpbmX5xfsgTQVJRVLK`](https://explorer.solana.com/address/9d1C6cKzUMCTh7Uj5jLQmF1FNLBpbmX5xfsgTQVJRVLK?cluster=devnet) |
+
+Example transactions: `init_config` [`3dWFtHCV…`](https://explorer.solana.com/tx/3dWFtHCVHUwB6pP9nMx1XMujMvbHgXG6ybeidaqML5npGLEUUtKuJAxJoVUBoR9sahes3tsfHnax6axYjFjLD7iQ?cluster=devnet),
+`create_series` [`415veQYs…`](https://explorer.solana.com/tx/415veQYsijvk6sSHRiyMDCAUvwMvtnkWRFnpvFUiUF42URCyT8yYNuzk7BAg5oXiJyx4WTHUEMN6xa8MyNon8FU5?cluster=devnet),
+`mint` [`4uLd6mpH…`](https://explorer.solana.com/tx/4uLd6mpHy7r9tJJDLsYr8Hw42ozJ8tBafnX6Y9D72fVN37pA1CNzeBPDfnp9GQtjTyovjfFGcL5fdQrFjaytDD9v?cluster=devnet), and a Pyth print posted through Wormhole and the receiver and sampled
+[`268dv4W1…`](https://explorer.solana.com/tx/268dv4W1C7ioRiipd7waXEVGjSqnMqDR9KAv5AmScfY5XVAnWZ8s1GPKdAwA8NYbfC6cN1m3f12QUYApuZQtWSBn?cluster=devnet)
+then [`sMLMjZd7…`](https://explorer.solana.com/tx/sMLMjZd7xpmXebmYBJ9bVDMXw8uXFFJBZ7jXw5RYj246M8ykW1Yph2wj6xFhhcwYevMyg7huWhWFVks6uFxGhVA?cluster=devnet).
+Settlement signatures are added to the log after the Oct 30 expiry.
+
+### Reproduce it
+
+Against `https://api.devnet.solana.com`, with a funded keypair outside the repository:
+
+```sh
+export SOLANA_URL=https://api.devnet.solana.com
+export METALBOOK_KEYPAIR=~/keys/devnet-authority.json      # pays and becomes admin
+make pre-push && make program
+solana-keygen new -o ~/keys/metalbook-program.json          # never commit it
+solana program deploy target/deploy/metalbook_program.so --url "$SOLANA_URL" \
+  --program-id ~/keys/metalbook-program.json --upgrade-authority "$METALBOOK_KEYPAIR"
+export METALBOOK_PROGRAM_ID=$(solana-keygen pubkey ~/keys/metalbook-program.json)
+alias metalbook-admin='cargo run -q --release -p metalbook-cli --bin metalbook-admin --'
+
+metalbook-admin init-config --usdc-mint 4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU \
+  --params metalbook-cli/devnet-params.json
+metalbook-admin set-calendar --underlying xau --expiries 1793390400,1793998800
+metalbook-admin create-series --underlying xau --kind put --strike 3800 --expiry 1793390400
+METALBOOK_KEYPAIR=~/keys/writer.json metalbook-admin mint --series <SERIES> --contracts 1
+
+# Settlement: the keeper reads Pyth prints from Hermes. The key comes only from the
+# environment and is never printed or written to a file.
+export METALBOOK_HERMES_API_KEY=...
+cargo run --release -p metalbook-cli --bin metalbook-keeper
+```
 
 ## Setup Instructions
 

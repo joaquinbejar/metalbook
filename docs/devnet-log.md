@@ -117,12 +117,46 @@ for the first two expiries; later expiries are listed weekly around the then spo
 | 1793998800 | XAG | put | 52 | `92sL1UdGxDkRMtX9sN4f4TSKDpczVuPpHyY4vCKg5ado` | `3jGbebJwvBnBReCC8Kk7KZRHBoC1AGguDTsat2zDFyVATjaTE9t2xUCTp8eLc1SaZpXyotZGQEV2Yc9fGU3jVHQS` |
 | 1793998800 | XAG | call (cap 57.2) | 52 | `3BBBDnkZ9Xkab4tu9wcVd2C2msXtYaweCNoBS94qG8FJ` | `Ju5FWuZJTimUPmVfqSbEJTdwk76FBqADRDARZYRmMvSFbfvAJ4gUN2Ev3gFoY9FuMAUigKYpAwtFUcG4jTwyn6v` |
 
+## Faucet-sized XAG series (devnet only)
+
+Circle's devnet faucet gave the maker 20 USDC, less than one contract of any listed series
+(the cheapest, an XAG 48/52.8 call at 50 oz, holds 240 USDC). So, on devnet only, `set_config`
+lowered the XAG multiplier to 1 oz (`metalbook-cli/devnet-params-faucet.json`; every other
+parameter unchanged, the 50 oz series keep 50 oz: live series are immutable) and seven Oct 30
+XAG series were listed at 1 oz. The 50 oz XAG series stay unwritten and unposted: they test
+the void path. Mainnet keeps the approved multipliers.
+
+| Step | Account | Signature |
+| --- | --- | --- |
+| `set_config` (XAG multiplier 50 to 1 oz) | config | `TXfQSv9aWV3Laidnx17vUKW8V8PAd4kZJntzqBtGh2GSr5sgyVLjFqrRriYxzYxPGhKzgqSDwxo4xp5ahHipYdR` |
+| `create_series` XAG call 48, cap 52.8, 1 oz | `9d1C6cKzUMCTh7Uj5jLQmF1FNLBpbmX5xfsgTQVJRVLK` | `21fNNZ8fgU1uBZnnJCNdNzQJ5E85tvi2WtCPXxSoNx8PU4RoiEtiTpjsQaZyqUfCn4XGxwYfkSJQN3jYG8hGYqFN` |
+| `create_series` XAG call 49, cap 53.9, 1 oz | `4BP9Rw5jAprEPqf476bZmZd9W5pibvRFNWKowZeKuAth` | `4TgwDKwVTbx3CkqdWgwhHUCdyVM1jAdkLCi1JswCLvRGAbWUwGTVX32KWSpUeZ7fd71RC8gpL9iikwvDz8Fi4P4y` |
+| `create_series` XAG call 50, cap 55, 1 oz | `9HGpi5WbLxWSZfU3WuydbXMPfNvJrdA5T4FC3Dtee57W` | `5kVRkenQGfuRtMs7hsEBHYfBFTJiZ5JU8g7dyeULS2K4YCZTyNFbHip9FAw97WoHKYYUhMTDXqag4eShxwJQdNe7` |
+| `create_series` XAG call 51, cap 56.1, 1 oz | `C5CA4egx9AWTVg35Y3k1EhkwfcYMGdGs5hNWDrVM6UTX` | `PyWib7x1J9Kom5uz2Pz9TyYrEjq6QyCSc6sXSq6Us4hKXEbWKwU3iYMZ9SxorwwBvu8o2ttxerrFC7i5URG2HJH` |
+| `create_series` XAG call 52, cap 57.2, 1 oz | `Hs2SMW7Uv5TkPzBpZbLmPNuGepAyrUhmh1FfU6Yxtp9U` | `KgEALHig2g3zQaUd3Xyr6GWVGNfNEe7gZPnw8hKUXtatnGavzcUiwB7uPudikkMvuha5E5Z2ohTnLCUa6Tzt3dB` |
+| `create_series` XAG put 48, 1 oz | `B5pPdQXhGKnEyWkU2PZZzPV1kio3jaEoQGFBSh4D4uoG` | `23PNT5ghvvUX1fuTXeetaepb4rXMxFyFvG2v6861KU8cFzcgTkznLtsdPSh6KXA48wxi8Row2qnn6eVkmETmYwnf` |
+| `create_series` XAG put 50, 1 oz | `BSpa2zeovzEUdd9dZ6LwfNuw3BpBVWpetna9qYDqYG4R` | `5jvFRdWKSTkTQ9RsnosnisNdYvgLtAUaPonXiituUyio2Y5xhjJqPg7D6uw5YcyQZi7K41i9CjAs5WUD4sA2Bsto` |
+| `mint` 1 contract of the XAG 48 call (maker) | `9d1C6cKzUMCTh7Uj5jLQmF1FNLBpbmX5xfsgTQVJRVLK` | `4uLd6mpHy7r9tJJDLsYr8Hw42ozJ8tBafnX6Y9D72fVN37pA1CNzeBPDfnp9GQtjTyovjfFGcL5fdQrFjaytDD9v` |
+| `mint` 1 contract of the XAG 49 call (maker) | `4BP9Rw5jAprEPqf476bZmZd9W5pibvRFNWKowZeKuAth` | `3erN9yw5hmSYe6KhSEvLSBSeu9jKJQXGWBAh5nPMjvoHSd3aQuNEkkKhU8tUoK9xBVBNYYjrmw1e1XVTf4Zm6WMe` |
+| `mint` 1 contract of the XAG 50 call (maker) | `9HGpi5WbLxWSZfU3WuydbXMPfNvJrdA5T4FC3Dtee57W` | `4kNrdXshGRHiL6psZMiXcnBMUKPp9DDHo95AK7T9yqRZVhCyTnzd8D9J6ssqYq8SFLVasrRoN1U5dB14gH781ZHx` |
+
+After the mints each of the three series holds exactly its collateral (`vault_owed` 4.8, 4.9
+and 5.0 USDC, one contract and one long token each) and the maker has 5.3 USDC left.
+
+## Receiver posting, live check
+
+`metalbook-keeper --check-post` on the XAU 3800 put (`2CpwYjJVt33VQ6b8NBHSiqYxJASnk2ZtWvv3gznpswU5`)
+posted the latest XAU print (3967.935, published 1793363681) through Wormhole and the Pyth
+receiver and sampled it as the series' fallback candidate, in 4 seconds:
+
+| Transaction | Signature |
+| --- | --- |
+| Encoded VAA: create, init, write, verify | `268dv4W1C7ioRiipd7waXEVGjSqnMqDR9KAv5AmScfY5XVAnWZ8s1GPKdAwA8NYbfC6cN1m3f12QUYApuZQtWSBn` |
+| `post_update`, `sample_settlement`, `reclaim_rent`, `close_encoded_vaa` | `sMLMjZd7xpmXebmYBJ9bVDMXw8uXFFJBZ7jXw5RYj246M8ykW1Yph2wj6xFhhcwYevMyg7huWhWFVks6uFxGhVA` |
+
 ## Not done yet
 
-- **Writing and trading**: the payer holds no devnet USDC and Circle's devnet faucet is a web
-  form, so writers cannot mint yet. The maker needs USDC at
-  `7tVPWX3zmxYCZ5ioTSX4yzdNq8o3Xr1hMSv2kz12cACQ`.
-- **Settlement**: Hermes answers 401 without a key on every price endpoint (`hermes`,
-  `hermes-beta` and `benchmarks`, checked 2026-10-30), so the keeper cannot read prints and
-  M7b-2 cannot record guardian-signed updates. Series reaching expiry without posts void after
-  `hard_deadline_s` (7 days), returning collateral to writers.
+- **Settlement of the Oct 30 series** (20:00Z): the keeper (milestone 7c) runs over the XAU
+  series and the 1 oz XAG series; the 50 oz XAG series are left to void after
+  `hard_deadline_s` (7 days). Signatures to be recorded here.
+- **Trading** through QuoteBook on devnet, once the maker has more USDC.
