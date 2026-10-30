@@ -60,10 +60,29 @@ pub struct RpcChain<R, U> {
     updates: U,
     program_id: Address,
     payer: Keypair,
-    /// Encoded VAAs of this payer left open by a failed post whose close also failed; retried
-    /// before every post (codex, #25: only the write authority can return their rent).
-    orphans: Vec<Address>,
+    /// Encoded VAAs of this payer that may be open: retried before every post (codex, #25:
+    /// only the write authority can return their rent).
+    orphans: Vec<Orphan>,
+    /// How long an address never seen to exist is kept: its creating transaction may still
+    /// land until its blockhash expires (codex, #26).
+    landing_window: std::time::Duration,
 }
+
+/// An encoded VAA that may be open.
+#[derive(Debug, Clone, Copy)]
+struct Orphan {
+    address: Address,
+    /// When its creation was sent (or when it was found).
+    since: std::time::Instant,
+    /// Whether it was ever known to exist: once it is absent again, it was closed.
+    seen: bool,
+}
+
+/// Default [`RpcChain::with_landing_window`]: a blockhash is valid for 150 blocks, about a
+/// minute, so twice that leaves margin. This is a heuristic, not a proof that the transaction
+/// expired (block times vary); the keeper binary's periodic orphan scan is the backstop for
+/// anything that lands later still (codex, #29).
+const LANDING_WINDOW: std::time::Duration = std::time::Duration::from_secs(120);
 
 impl<R: Rpc, U: UpdateSource> RpcChain<R, U> {
     /// A chain over `rpc` for `program_id`, paying with `payer` (also the write authority of
@@ -75,38 +94,58 @@ impl<R: Rpc, U: UpdateSource> RpcChain<R, U> {
             program_id,
             payer,
             orphans: Vec::new(),
+            landing_window: LANDING_WINDOW,
         }
+    }
+
+    /// Replaces how long an address never seen to exist is kept before it is dropped (default
+    /// 120 seconds, past a blockhash's validity).
+    #[must_use]
+    pub fn with_landing_window(mut self, window: std::time::Duration) -> Self {
+        self.landing_window = window;
+        self
     }
 
     /// Adds encoded VAAs to close (for example found at startup,
     /// [`crate::rpc::Cluster::encoded_vaas_of`]).
     pub fn adopt_orphans(&mut self, orphans: impl IntoIterator<Item = Address>) {
-        for o in orphans {
-            if !self.orphans.contains(&o) {
-                self.orphans.push(o);
+        for address in orphans {
+            if self.orphans.iter().all(|o| o.address != address) {
+                self.orphans.push(Orphan {
+                    address,
+                    since: std::time::Instant::now(),
+                    seen: true,
+                });
             }
         }
     }
 
     /// The encoded VAAs still waiting to be closed.
     #[must_use]
-    pub fn orphans(&self) -> &[Address] {
-        &self.orphans
+    pub fn orphans(&self) -> Vec<Address> {
+        self.orphans.iter().map(|o| o.address).collect()
     }
 
-    /// Closes every known orphan that still exists. The account is re-read rather than the
-    /// send's result trusted: a transaction can land while its confirmation fails (codex, #26),
-    /// so an orphan is dropped once it is gone and kept while it exists or cannot be read.
+    /// Closes every known orphan that exists. The account is re-read rather than a send's
+    /// result trusted, since a transaction can land while its confirmation fails (codex, #26):
+    /// an orphan is dropped after a successful close, when it is absent after having existed,
+    /// or when it never appeared within the landing window (its creation can no longer land);
+    /// otherwise it is kept.
     pub fn close_orphans(&mut self) {
         let pending = std::mem::take(&mut self.orphans);
-        for o in pending {
-            if self.exists(&o) == Some(false) {
-                continue;
+        for mut o in pending {
+            match self.exists(&o.address) {
+                Some(false) if o.seen || o.since.elapsed() >= self.landing_window => continue,
+                Some(true) => o.seen = true,
+                _ => {
+                    self.orphans.push(o);
+                    continue;
+                }
             }
             let closed = self
-                .send(&[close_encoded_vaa(&self.payer.pubkey(), &o)], &[])
+                .send(&[close_encoded_vaa(&self.payer.pubkey(), &o.address)], &[])
                 .is_ok();
-            if !closed && self.exists(&o) != Some(false) {
+            if !closed && self.exists(&o.address) != Some(false) {
                 self.orphans.push(o);
             }
         }
@@ -199,13 +238,21 @@ impl<R: Rpc, U: UpdateSource> Chain for RpcChain<R, U> {
         // Recorded before anything is sent: either transaction may land even when its
         // confirmation fails, and only the account itself tells (codex, #26). Transaction 2
         // closes it; a failure re-reads it through `close_orphans`.
-        self.orphans.push(a.encoded_vaa);
-        let sent = self
-            .send(&verify, &[&encoded_vaa])
-            .and_then(|_| self.send(&post, &[&price_update]));
+        self.orphans.push(Orphan {
+            address: a.encoded_vaa,
+            since: std::time::Instant::now(),
+            seen: false,
+        });
+        let sent = self.send(&verify, &[&encoded_vaa]).and_then(|_| {
+            // Confirmed: the account exists, so once it is absent it was closed.
+            if let Some(o) = self.orphans.iter_mut().find(|o| o.address == a.encoded_vaa) {
+                o.seen = true;
+            }
+            self.send(&post, &[&price_update])
+        });
         match sent {
             Ok(_) => {
-                self.orphans.retain(|o| *o != a.encoded_vaa);
+                self.orphans.retain(|o| o.address != a.encoded_vaa);
                 Ok(())
             }
             Err(e) => {

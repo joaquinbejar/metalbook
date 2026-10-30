@@ -20,6 +20,10 @@ use metalbook_keeper::{
 use metalbook_sdk::core::SeriesState;
 use metalbook_sdk::Address;
 
+/// Passes between two scans for orphaned encoded VAAs (about 10 minutes at the default
+/// interval).
+const ORPHAN_SCAN_PASSES: u64 = 10;
+
 /// Settlement keeper for metalbook series.
 #[derive(Parser)]
 #[command(version)]
@@ -62,16 +66,7 @@ fn run(args: Args) -> Result<(), CliError> {
         .collect::<Result<_, _>>()?;
     let mut chain = RpcChain::new(Cluster::new(&args.url), &source, program_id, payer);
     // Encoded VAAs left by earlier runs whose posts failed after verification.
-    let scan = chain.rpc().encoded_vaas_of(&payer_address);
-    match scan {
-        Ok(found) if !found.is_empty() => {
-            println!("closing {} orphaned encoded VAA(s)", found.len());
-            chain.adopt_orphans(found);
-        }
-        Ok(_) => {}
-        Err(e) => eprintln!("orphan scan skipped: {e}"),
-    }
-    chain.close_orphans();
+
     if let Some(series) = &args.check_post {
         let series = parse_address(series)?;
         let data = chain
@@ -95,7 +90,23 @@ fn run(args: Args) -> Result<(), CliError> {
     let keeper = Keeper;
     let series_len =
         u64::try_from(SERIES_LEN).map_err(|_| CliError::Usage("series size".into()))?;
+    let mut pass: u64 = 0;
     loop {
+        // Encoded VAAs this payer left open (a post that failed after verification, or one
+        // whose creation landed late): at startup and every ORPHAN_SCAN_PASSES passes.
+        if pass.checked_rem(ORPHAN_SCAN_PASSES) == Some(0) {
+            let scan = chain.rpc().encoded_vaas_of(&payer_address);
+            match scan {
+                Ok(found) if !found.is_empty() => {
+                    println!("closing {} orphaned encoded VAA(s)", found.len());
+                    chain.adopt_orphans(found);
+                }
+                Ok(_) => {}
+                Err(e) => eprintln!("orphan scan skipped: {e}"),
+            }
+            chain.close_orphans();
+        }
+        pass = pass.wrapping_add(1);
         let all = if fixed.is_empty() {
             chain.rpc().accounts_of_size(&program_id, series_len)?
         } else {

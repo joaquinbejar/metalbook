@@ -529,3 +529,110 @@ fn test_a_close_that_lands_but_reports_an_error_is_not_retried_forever() {
         5 * 5_000
     );
 }
+
+/// [`Svm`] whose sends at the given indices report an error without landing yet; the held
+/// transactions land when [`LandsLate::deliver`] is called (codex, #26: a confirmation can fail
+/// while the transaction is still in flight).
+struct LandsLate {
+    svm: Svm,
+    sends: usize,
+    late: Vec<usize>,
+    held: Vec<Transaction>,
+}
+
+impl LandsLate {
+    fn deliver(&mut self) {
+        for tx in std::mem::take(&mut self.held) {
+            self.svm.send(&tx).unwrap();
+        }
+    }
+}
+
+impl Rpc for LandsLate {
+    fn latest_blockhash(&mut self) -> Result<solana_hash::Hash, CliError> {
+        // Keep the held transactions' blockhash valid when they are delivered.
+        Ok(self.svm.0.svm.latest_blockhash())
+    }
+
+    fn account(&mut self, address: &Address) -> Result<Option<AccountInfo>, CliError> {
+        self.svm.account(address)
+    }
+
+    fn send(&mut self, tx: &Transaction) -> Result<(), CliError> {
+        let index = self.sends;
+        self.sends += 1;
+        if self.late.contains(&index) {
+            self.held.push(tx.clone());
+            return Err(CliError::Rpc("confirmation timed out".into()));
+        }
+        self.svm
+            .0
+            .svm
+            .send_transaction(tx.clone())
+            .map(|_| ())
+            .map_err(|e| CliError::Rpc(format!("{:?}", e.err)))
+    }
+}
+
+#[test]
+fn test_a_verify_that_lands_late_is_kept_then_closed() {
+    use metalbook_keeper::Chain;
+    let r = recorded();
+    let print = recorded_print(&r);
+    let (mut env, series) = setup(&r);
+    let payer = env.funded();
+    let before = env.svm.get_balance(&payer.pubkey()).unwrap();
+    let mut chain = RpcChain::new(
+        LandsLate {
+            svm: Svm(env),
+            sends: 0,
+            late: vec![0],
+            held: Vec::new(),
+        },
+        Recording(r.update.clone(), print),
+        PROGRAM_ID,
+        payer.insecure_clone(),
+    );
+    // The verify is still in flight when its confirmation fails: the account is absent, but
+    // within the landing window the address is kept.
+    assert!(chain.post(&series, &FEED_XAU, &print).is_err());
+    assert_eq!(chain.orphans().len(), 1);
+    chain.close_orphans();
+    assert_eq!(chain.orphans().len(), 1, "still absent, still kept");
+    // It lands: the next cleanup closes it.
+    chain.rpc().deliver();
+    assert_eq!(encoded_vaas(&chain.rpc().svm.0), 1);
+    chain.close_orphans();
+    assert!(chain.orphans().is_empty());
+    let env = &chain.rpc().svm.0;
+    assert_eq!(encoded_vaas(env), 0);
+    // The late verify (2 signatures) and the close (1): no rent lost.
+    assert_eq!(
+        before - env.svm.get_balance(&payer.pubkey()).unwrap(),
+        3 * 5_000
+    );
+}
+
+#[test]
+fn test_an_address_that_never_lands_is_dropped_after_the_window() {
+    use metalbook_keeper::Chain;
+    let r = recorded();
+    let print = recorded_print(&r);
+    let (mut env, series) = setup(&r);
+    let payer = env.funded();
+    let mut chain = RpcChain::new(
+        LandsLate {
+            svm: Svm(env),
+            sends: 0,
+            late: vec![0],
+            held: Vec::new(),
+        },
+        Recording(r.update.clone(), print),
+        PROGRAM_ID,
+        payer.insecure_clone(),
+    )
+    .with_landing_window(std::time::Duration::ZERO);
+    // With the window over, an address that never appeared can no longer be created: dropped.
+    assert!(chain.post(&series, &FEED_XAU, &print).is_err());
+    assert!(chain.orphans().is_empty());
+}
