@@ -549,3 +549,25 @@ fn test_a_miss_is_dropped_once_a_newer_print_exists() {
         110
     );
 }
+
+#[test]
+fn test_remembered_misses_cost_nothing_when_nothing_is_published() {
+    // codex's #28 probe: Hermes has nothing at all for the feed (404 everywhere). The first
+    // ask of each time costs one timestamp request; asking again, for any number of slots and
+    // passes, costs one `/latest` per feed per 10 s and nothing else.
+    let fake = FakeHermes::new(vec![]);
+    let source = HermesSource::new(config(), &fake);
+    for t in 100..130 {
+        assert_eq!(source.first_at_or_after(&FEED, t).unwrap(), None);
+    }
+    assert_eq!(fake.seen.borrow().len(), 30);
+    for _pass in 0..5 {
+        for t in 100..130 {
+            assert_eq!(source.first_at_or_after(&FEED, t).unwrap(), None);
+        }
+    }
+    let seen = fake.seen.borrow();
+    let extra: Vec<_> = seen[30..].iter().map(|(u, _)| u.clone()).collect();
+    assert_eq!(extra.len(), 1, "{extra:?}");
+    assert!(extra[0].contains("/latest"), "{extra:?}");
+}
