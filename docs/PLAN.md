@@ -613,7 +613,10 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    binaries (`make pyth-programs` dumps both from devnet, pinned by sha256) with the
    receiver's config and guardian set 1 recorded from devnet and a guardian-signed XAU update
    recorded from Hermes: verified, posted and sampled as the series' fallback candidate, both
-   temporary accounts closed (the payer pays only the 4 signatures); a changed signature fails
+   temporary accounts closed (the payer pays only the 4 signatures). If transaction 2 fails
+   after transaction 1 landed, the verified encoded VAA keeps its rent (about 2.37 million
+   lamports for a 292-byte VAA) until its write authority, the payer, closes it (codex, #25):
+   the keeper closes it after the failure and retries known orphans (M7c); a changed signature fails
    Wormhole's verification and a changed price fails the receiver's Merkle check
    (`InvalidPriceUpdate`), and neither reaches the series. CU: about 85,000 for the verify
    transaction and 38,000 for post, sample and both closes.

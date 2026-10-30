@@ -248,6 +248,12 @@ pub struct PostAccounts {
 }
 
 /// The two transactions of one post.
+///
+/// **If the second transaction fails after the first landed**, the verified encoded VAA stays
+/// open with its rent (`VAA_START + vaa.len()` bytes, about 2.37 million lamports for a 292-byte
+/// VAA) until a `close_encoded_vaa` signed by its write authority, the payer, returns it: no one
+/// else can. The keeper's chain closes it right after the failure and keeps retrying the
+/// orphans it knows about (milestone 7c).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PostInstructions {
     /// Signed by the payer and the encoded VAA keypair: create, init, write, verify.
