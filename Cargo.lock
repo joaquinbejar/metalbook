@@ -2729,6 +2729,8 @@ dependencies = [
  "metalbook-core",
  "serde",
  "serde_json",
+ "solana-address 2.7.0",
+ "solana-instruction 3.5.1",
  "thiserror 2.0.21",
  "ureq",
 ]
@@ -2774,6 +2776,7 @@ dependencies = [
 name = "metalbook-tests"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "litesvm",
  "litesvm-token",
  "metalbook-cli",

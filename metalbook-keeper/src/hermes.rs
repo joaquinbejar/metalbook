@@ -3,12 +3,10 @@
 //! The API key is read only from the environment, never from a file and never printed: `Debug`
 //! redacts it.
 //!
-//! **UNVERIFIED: the authentication scheme.** Hermes' price endpoints answer 401 without a key
-//! (`docs/PLAN.md` verified facts), but Pyth's documentation does not yet state how the key is
-//! sent. The only source found (Mysten Labs' deepbook SDK documentation) uses
-//! `Authorization: Bearer <key>`, so that is the default; [`AuthScheme::Header`] sends it in a
-//! named header instead (`METALBOOK_HERMES_AUTH=header:<name>`). Confirm on the first live call
-//! and update this note and the plan.
+//! Authentication: `Authorization: Bearer <key>`, the default, verified with a live call on
+//! 2026-10-30 (every price endpoint answers 401 without a key). [`AuthScheme::Header`] sends the
+//! key in a named header instead (`METALBOOK_HERMES_AUTH=header:<name>`) for gateways that
+//! want one.
 //!
 //! Endpoint semantics, verified in the Hermes source (pyth-crosschain
 //! `apps/hermes/server/src/api/rest/v2/timestamp_price_updates.rs`, `RequestTime::FirstAfter`):
@@ -36,7 +34,7 @@ pub const HERMES_AUTH_VAR: &str = "METALBOOK_HERMES_AUTH";
 /// Default Hermes endpoint.
 pub const DEFAULT_HERMES_URL: &str = "https://hermes.pyth.network";
 
-/// How the API key is sent. **UNVERIFIED** (see the module documentation).
+/// How the API key is sent (bearer verified live; see the module documentation).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthScheme {
     /// `Authorization: Bearer <key>` (default).

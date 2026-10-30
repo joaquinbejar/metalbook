@@ -586,18 +586,40 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    `metadata.prev_publish_time`) becomes a `PrintMsg`, and the base64 binary update is kept
    for the receiver posting of M7b-2. HTTP is one blocking crate, `ureq` 3.5 with rustls
    (no native TLS), behind an `HttpGet` trait so tests replay fixtures. The API key comes only
-   from `METALBOOK_HERMES_API_KEY`. **UNVERIFIED until the first live call: the auth scheme.**
-   The default is `Authorization: Bearer <key>` (the only source found is Mysten Labs'
-   deepbook SDK documentation; Pyth's documentation does not state it);
+   from `METALBOOK_HERMES_API_KEY`. The auth scheme is `Authorization: Bearer <key>`,
+   **verified on 2026-10-30** with a live call (200; without a key every price endpoint of
+   `hermes`, `hermes-beta` and `benchmarks` answers 401, only `/v2/price_feeds` is public);
    `METALBOOK_HERMES_AUTH=header:<name>` switches to a named header. A 401 or 403 says so.
    `examples/hermes.rs --live` fetches one XAU print and exits with status 2 and a clear
    message when the key is not set. Tests: a recorded-shape fixture, the request URL and
    header, status handling (404 is "nothing yet", 401/403/500 are errors), and, over a
    synthetic tape served with Hermes' semantics, answers identical to `TapeSource` for every
-   query (including the `latest` anchor). M7b-2, the Pyth receiver posting (Wormhole
-   encoded VAA, `verify_encoded_vaa_v1`, then the receiver's `post_update` for a `Full`
-   `PriceUpdateV2`; `post_update_atomic` only gives `Partial`), waits for a Hermes key to
-   record a guardian-signed update for LiteSVM tests against the mainnet programs.
+   query (including the `latest` anchor).
+
+   M7b-2 (receiver posting, `metalbook_keeper::receiver`): a Hermes binary update is parsed
+   (`"PNAU"`, version 1, a Wormhole Merkle proof: the VAA and each feed's message with its
+   20-byte Keccak-160 path, Pyth's big-endian wire format) and posted as the receiver's own
+   CLI does: transaction 1 creates an account owned by the Wormhole core bridge
+   (`HDwcJBJXjL9FpJ7UBsYBtaDjsBUhuLCUYoz3zr8SWWaQ`, the program the receiver's config names on
+   mainnet and devnet), `init_encoded_vaa`, `write_encoded_vaa` (one write: Hermes' VAAs are
+   about 300 bytes, under the CLI's 755-byte split) and `verify_encoded_vaa_v1` against the
+   guardian set the VAA names (set 1, 3 signatures; the receiver's `minimum_signatures` is 3
+   and its fee 0 on devnet); transaction 2 is `post_update` (a `Full` `PriceUpdateV2`;
+   `post_update_atomic` only gives `Partial`), metalbook's `sample_settlement`, then
+   `reclaim_rent` and `close_encoded_vaa`, so a post leaves no account behind. Layouts and
+   Anchor discriminators come from the sources (pyth-crosschain at `69d9242`:
+   `pyth-solana-receiver`, `pyth_solana_receiver_sdk`, the vendored `core-bridge`,
+   `pythnet_sdk::wire`). LiteSVM test (`metalbook-tests/tests/receiver.rs`) against the real
+   binaries (`make pyth-programs` dumps both from devnet, pinned by sha256) with the
+   receiver's config and guardian set 1 recorded from devnet and a guardian-signed XAU update
+   recorded from Hermes: verified, posted and sampled as the series' fallback candidate, both
+   temporary accounts closed (the payer pays only the 4 signatures). If transaction 2 fails
+   after transaction 1 landed, the verified encoded VAA keeps its rent (about 2.37 million
+   lamports for a 292-byte VAA) until its write authority, the payer, closes it (codex, #25):
+   the keeper closes it after the failure and retries known orphans (M7c); a changed signature fails
+   Wormhole's verification and a changed price fails the receiver's Merkle check
+   (`InvalidPriceUpdate`), and neither reaches the series. CU: about 85,000 for the verify
+   transaction and 38,000 for post, sample and both closes.
 
    Delivered first (M7a, no devnet yet): `metalbook-keeper` (off-chain, std), the honest
    keeper of the 4.3 trust assumption. `Keeper::tick` reads a series, restores its oracle

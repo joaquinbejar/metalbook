@@ -135,8 +135,8 @@ once the cascade allows (PLAN 4.3).
 METALBOOK_HERMES_API_KEY=... cargo run -p metalbook-keeper --example hermes -- --live   # confirms the key and auth scheme
 ```
 
-If that returns 401 or 403, try `METALBOOK_HERMES_AUTH=header:<name>` and record the scheme that
-works in PLAN, removing the UNVERIFIED mark.
+Bearer auth (the default) was verified on 2026-10-30. Run `make pyth-programs` before the
+LiteSVM tests: it dumps the receiver and Wormhole from devnet and checks their hashes.
 
 **GAP: posting and the keeper binary.**
 - Each print must become a `Full` `PriceUpdateV2` through Wormhole's encoded VAA and the
@@ -172,9 +172,9 @@ Every transaction signature goes into the log below.
    helpers, decoders) and `metalbook-admin` (`metalbook-cli`) for steps 3 and 4. Writer and
    holder steps (`mint`, `close`, `redeem`, `claim_writer`, the closes) use the SDK with any
    Solana client.
-2. **M7b-2: Pyth receiver posting** (Wormhole encoded VAA, `verify_encoded_vaa_v1`, receiver
-   `post_update` for a `Full` update). Blocked on the Hermes key, needed to record a
-   guardian-signed update for tests.
+2. ~~M7b-2: Pyth receiver posting~~: done, `metalbook_keeper::receiver` (encoded VAA,
+   `verify_encoded_vaa_v1`, receiver `post_update` for a `Full` update, then
+   `sample_settlement` and both closes), tested in LiteSVM against the real programs.
 3. **An RPC `Chain` for the keeper and a keeper binary.** It depends on item 2 for `post`; reading
    accounts and `settle` do not.
 
