@@ -161,7 +161,7 @@ fn the_devnet_parameters_file_matches_the_runbook() {
     let text = std::fs::read_to_string(path).unwrap();
     let params = ParamsFile::from_json(&text).unwrap().to_params().unwrap();
     assert_eq!(params.encode().len(), 161);
-    assert_eq!(params.strike_tick, [5_000_000, 250_000]);
+    assert_eq!(params.strike_tick, [50_000_000, 1_000_000]);
     assert_eq!(params.multiplier, [1_000, 50_000]);
     assert_eq!(params.expo, [-3, -5]);
     assert_eq!(params.receiver_program, metalbook_sdk::PYTH_RECEIVER);
