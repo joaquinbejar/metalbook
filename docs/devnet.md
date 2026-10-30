@@ -1,8 +1,9 @@
 # Devnet runbook (milestone 7)
 
-Status: **not executed.** This is the plan for the first devnet deployment, written before it
-happens. Nothing here has been run against devnet yet. Steps marked **GAP** need code that does
-not exist yet, listed in [What is missing](#what-is-missing).
+Status: **steps 1 to 4 executed on 2026-10-30** (deploy, config, calendars, 52 series); the
+record is [`devnet-log.md`](devnet-log.md). Writing, trading and settlement wait for devnet
+USDC and a Hermes key (see the log). Steps marked **GAP** need code that does not exist yet,
+listed in [What is missing](#what-is-missing).
 
 Done when (`docs/PLAN.md`, milestone 7): a full series lifecycle runs on devnet against live Pyth
 XAU/USD.
@@ -14,9 +15,9 @@ XAU/USD.
 | Upgrade-authority keypair | Deploys and upgrades the program, and is the only key `init_config` accepts (PLAN 3.3) | Ideally a hardware wallet or a dedicated key, never committed. It is also the first config admin; `set_config` can hand admin to another key afterwards. |
 | Program id keypair | Fixes the program address | `cargo build-sbf` generates `target/deploy/metalbook_program-keypair.json` (git-ignored). Keep a copy outside the repo; losing it does not lose the program, but keeping it lets the address be reproduced. |
 | Devnet SOL, about 5 SOL | Program deployment and account rent | The 91 KB program needs about 1.3 SOL of rent for its ProgramData account with the default 2x buffer, plus a temporary buffer during `deploy`. Config, calendars, series, mints and fees are small. The devnet faucet is rate-limited, so the amount may need to be requested in several steps. |
-| Hermes API key | The keeper reads Pyth prints from Hermes; the price endpoints answer 401 without a key | Set `METALBOOK_HERMES_API_KEY` in the environment only, never in a file. The auth header scheme is unverified (PLAN M7b-1): the first live call confirms it. |
-| A decision on the USDC mint | Collateral and payouts | Recommended: our own 6-decimal test mint on devnet, so we can mint test USDC to writers. Circle's devnet USDC is the alternative, but its supply is faucet-limited. |
-| Calendar times | Only calendar expiries can be listed (PLAN 4.4) | Times when XAU trades, with margin around the 30-minute settlement window, for example Wednesday 15:00 New York. |
+| Hermes API key | The keeper reads Pyth prints from Hermes; every price endpoint (`hermes`, `hermes-beta`, `benchmarks`) answers 401 without a key (checked 2026-10-30; only `/v2/price_feeds` metadata is public) | Set `METALBOOK_HERMES_API_KEY` in the environment only, never in a file. The auth header scheme is unverified (PLAN M7b-1): the first live call confirms it. |
+| A decision on the USDC mint | Collateral and payouts | Recommended: our own 6-decimal test mint on devnet, so we can mint test USDC to writers. Circle's devnet USDC is the alternative, but its supply is faucet-limited. **Decided: Circle devnet USDC `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`.** |
+| Calendar times | Only calendar expiries can be listed (PLAN 4.4) | Times when XAU trades, with margin around the 30-minute settlement window, for example Wednesday 15:00 New York. **Decided: weekly Fridays 16:00 New York; strikes at the money ±5% in $50 (XAU) and $1 (XAG) steps.** |
 | A host for the keeper | `tick` must run more often than `D` (10 minutes) | Any machine with the key in its environment. One minute is a good interval. |
 
 ## Facts to rely on (checked 2026-10-29)
@@ -85,7 +86,7 @@ devnet values:
 | Parameter | Value |
 | --- | --- |
 | `min_listing_s` | 3_600 |
-| `strike_tick` | XAU 5 USD (5_000_000), XAG 0.25 USD (250_000) |
+| `strike_tick` | XAU 50 USD (50_000_000), XAG 1 USD (1_000_000): the approved strike steps |
 | `multiplier` | XAU 1_000 (1 oz), XAG 50_000 (50 oz) |
 | `cap_bps` | 1_000, 2_500, 5_000, 0 |
 | `receiver_program` | `rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ` |
@@ -181,4 +182,4 @@ Every transaction signature goes into the log below.
 
 | Date | Commit | `.so` sha256 | Program id | Notes |
 | --- | --- | --- | --- | --- |
-| (not deployed) | | | | |
+| 2026-10-30 | `93f175a` | `4b58cb50…54127` | `FPPuou5kgSp6tbwQRwKPBNhrMyf1Xb8n2ib3Yqpbsuwg` | Steps 1 to 4; details and every signature in [`devnet-log.md`](devnet-log.md) |
