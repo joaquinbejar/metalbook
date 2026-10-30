@@ -439,3 +439,91 @@ fn test_fallback_steps_back_past_ineligible_prints() {
     let stored = i64::from_le_bytes(d[416..424].try_into().unwrap());
     assert_eq!(stored, t[previous].publish_time);
 }
+
+// codex's starvation probes (#28): Hermes allows `limit` requests per pass, then answers 429.
+// With nothing published (404 everywhere) past the hard deadline, a keeper that re-asked the
+// same empty slots every pass never reached `settle` and the series never voided.
+
+/// An HTTP double with a per-pass quota: `limit` answers, then 429.
+struct Quota {
+    count: std::cell::Cell<usize>,
+    limit: usize,
+    /// Answer `/latest` with a print (published at 100) instead of 404.
+    latest_print: bool,
+}
+
+impl metalbook_keeper::HttpGet for &Quota {
+    fn get(
+        &self,
+        url: &str,
+        _headers: &[(String, String)],
+    ) -> Result<metalbook_keeper::HttpResponse, KeeperError> {
+        self.count.set(self.count.get() + 1);
+        if self.count.get() > self.limit {
+            return Ok(metalbook_keeper::HttpResponse {
+                status: 429,
+                body: String::new(),
+            });
+        }
+        if self.latest_print && url.contains("/latest?") {
+            let feed: String = FEED_XAU.iter().map(|x| format!("{x:02x}")).collect();
+            return Ok(metalbook_keeper::HttpResponse {
+                status: 200,
+                body: format!(
+                    r#"{{"binary":{{"encoding":"base64","data":["AAEC"]}},"parsed":[{{"id":"{feed}","price":{{"price":"1","conf":"0","expo":-3,"publish_time":100}},"metadata":{{"prev_publish_time":99}}}}]}}"#
+                ),
+            });
+        }
+        Ok(metalbook_keeper::HttpResponse {
+            status: 404,
+            body: String::new(),
+        })
+    }
+}
+
+/// Ticks until the series settles (voids) or `passes` run out; returns the pass it settled in.
+fn settles_under_quota(latest_print: bool, passes: usize) -> Option<usize> {
+    let (mut env, args) = listed();
+    let series = args.series();
+    env.set_time(EXPIRY + HARD_S + D + 1);
+    let q = Quota {
+        count: std::cell::Cell::new(0),
+        limit: 6,
+        latest_print,
+    };
+    let cfg = metalbook_keeper::HermesConfig::from_lookup(|n| {
+        (n == metalbook_keeper::HERMES_API_KEY_VAR).then(|| "local-placeholder".into())
+    })
+    .unwrap();
+    let source = metalbook_keeper::HermesSource::new(cfg, &q)
+        .with_cooldown(std::time::Duration::from_millis(2));
+    for pass in 0..passes {
+        q.count.set(0);
+        if Keeper
+            .tick(&mut Svm(&mut env), &source, &series)
+            .is_ok_and(|r| r.settled)
+        {
+            let v = SeriesView::decode(&env.svm.get_account(&series).unwrap().data).unwrap();
+            assert_eq!(v.state, metalbook_core::SeriesState::Voided);
+            return Some(pass);
+        }
+        // Past the cooldown.
+        std::thread::sleep(std::time::Duration::from_millis(3));
+    }
+    None
+}
+
+#[test]
+fn test_nothing_published_and_a_tight_quota_still_void_past_the_deadline() {
+    // Remembered misses cost nothing while nothing newer exists, so each pass makes new
+    // progress and the series voids within a bounded number of passes (it starved forever
+    // at a25a028).
+    let pass = settles_under_quota(false, 40);
+    assert!(pass.is_some(), "starved");
+}
+
+#[test]
+fn test_a_published_latest_also_lets_the_keeper_progress_under_the_quota() {
+    // codex's positive control: `/latest` answers with an old print.
+    assert!(settles_under_quota(true, 40).is_some());
+}
