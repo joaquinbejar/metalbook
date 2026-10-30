@@ -23,10 +23,11 @@ the pricing adapter, the keeper and the CLI are used from the repository.
   decoders.
 - `metalbook-maker`: payoff-aware marks and two-sided quotes behind a `VanillaPricer` trait,
   priced by optfix (`OptfixPricer`), and quotebook quote terms.
-- `metalbook-keeper`: the honest settlement keeper, its Hermes price source (rate-limit aware,
-  cached) and Pyth receiver posting through Wormhole (`receiver`).
-- `metalbook-cli`: `metalbook-admin` (config, calendars, listing, minting, reads) and
-  `metalbook-keeper` (the keeper over RPC).
+- `metalbook-keeper`: the honest settlement keeper and its Hermes price source (cached,
+  paced, rate-limit aware; a miss holds only while nothing newer exists).
+- `metalbook-cli`: `metalbook-admin` (config, calendars, listing, minting, redeem, writer
+  claims, reads) and `metalbook-keeper` (the keeper over RPC, posting through Wormhole and the
+  Pyth receiver with `pyth-post`, one process per payer).
 - Devnet deployment (program `FPPuou5kgSp6tbwQRwKPBNhrMyf1Xb8n2ib3Yqpbsuwg`), recorded in
   `docs/devnet-log.md`.
 

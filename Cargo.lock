@@ -2700,6 +2700,7 @@ dependencies = [
  "clap",
  "metalbook-keeper",
  "metalbook-sdk",
+ "pyth-post",
  "serde",
  "serde_json",
  "solana-address 2.7.0",
@@ -2730,8 +2731,6 @@ dependencies = [
  "metalbook-core",
  "serde",
  "serde_json",
- "solana-address 2.7.0",
- "solana-instruction 3.5.1",
  "thiserror 2.0.21",
  "ureq",
 ]
@@ -2786,6 +2785,7 @@ dependencies = [
  "metalbook-maker",
  "metalbook-sdk",
  "pyth-lite",
+ "pyth-post",
  "quotebook-sdk",
  "rust_decimal",
  "rust_decimal_macros",
@@ -3523,6 +3523,24 @@ name = "pyth-lite"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7db340184e9e56981d8853ada40fb55b97d1b716e3c4ff4e4c9e5389a8d1197"
+
+[[package]]
+name = "pyth-post"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1225efb012197e8a29e43e5848cbad5fa709bc59444a45a09fc88d2be09656b9"
+dependencies = [
+ "pyth-lite",
+ "solana-address 2.7.0",
+ "solana-commitment-config",
+ "solana-instruction 3.5.1",
+ "solana-keypair",
+ "solana-rpc-client",
+ "solana-rpc-client-api",
+ "solana-signer",
+ "solana-transaction",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "qstring"

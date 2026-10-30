@@ -21,6 +21,7 @@ doc = false
 [dependencies]
 metalbook-sdk = { workspace = true }
 metalbook-keeper = { workspace = true }
+pyth-post = { workspace = true }
 # The generation metalbook-sdk builds instructions with (LiteSVM's, docs/PLAN.md exception).
 solana-address = { workspace = true, features = ["decode"] }
 solana-instruction = { workspace = true }

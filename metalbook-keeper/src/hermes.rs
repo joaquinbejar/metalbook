@@ -364,6 +364,10 @@ struct UpdateCache {
     /// The latest update per feed and when it was fetched: reused for [`LATEST_TTL`], so every
     /// series of a keeper pass anchors on the same update (and the same step back).
     latest: std::collections::HashMap<[u8; 32], (std::time::Instant, HermesUpdate)>,
+    /// Times Hermes had nothing at or after (404). Unlike a found update, a miss is not
+    /// permanent: it holds only while the feed's latest update is still before that time
+    /// (codex, #30: without it a recurring 429 had each pass re-ask the same empty slots).
+    misses: std::collections::HashSet<([u8; 32], i64)>,
 }
 
 /// How long a `/latest` answer is reused.
@@ -470,14 +474,28 @@ impl<H: HttpGet> HermesSource<H> {
                 return Ok(Some(u.clone()));
             }
         }
+        // A known miss holds while the latest update (one `/latest` request per feed per
+        // LATEST_TTL) is still before `t`.
+        if self.cache.borrow().misses.contains(&(*feed, t)) {
+            match self.latest(feed)? {
+                // Nothing published at all, or nothing since `t`: still a miss.
+                None => return Ok(None),
+                Some(latest) if latest.publish_time < t => return Ok(None),
+                Some(_) => {}
+            }
+        }
         let url = format!(
             "{}/v2/updates/price/{t}?ids%5B%5D={}&encoding=base64&parsed=true",
             self.config.base_url().trim_end_matches('/'),
             hex(feed)
         );
         let found = self.request(&url, feed)?;
+        if found.is_none() {
+            self.cache.borrow_mut().misses.insert((*feed, t));
+        }
         if let Some(u) = &found {
             let mut cache = self.cache.borrow_mut();
+            cache.misses.remove(&(*feed, t));
             cache.by_query.insert((*feed, t), u.clone());
             cache
                 .by_publish

@@ -498,3 +498,54 @@ fn test_future_times_cost_no_request() {
     }
     assert!(fake.seen.borrow().is_empty());
 }
+
+#[test]
+fn test_a_miss_is_reused_only_while_nothing_newer_exists() {
+    // Hermes has prints up to `now`; a time just after the last one is a 404.
+    let t = tape();
+    let last = t.iter().map(|m| m.publish_time).max().unwrap();
+    let mut fake = FakeHermes::new(t);
+    fake.now = last;
+    let source = HermesSource::new(config(), &fake);
+    let probe = last + 5;
+    assert_eq!(source.first_at_or_after(&FEED, probe).unwrap(), None);
+    let after_miss = fake.seen.borrow().len();
+    // Asked again: one `/latest` (cached for 10 s afterwards), no timestamp request.
+    for _ in 0..5 {
+        assert_eq!(source.first_at_or_after(&FEED, probe).unwrap(), None);
+    }
+    let seen = fake.seen.borrow();
+    let new: Vec<_> = seen[after_miss..].iter().map(|(u, _)| u.clone()).collect();
+    assert_eq!(new.len(), 1, "{new:?}");
+    assert!(new[0].contains("/latest"), "{new:?}");
+}
+
+#[test]
+fn test_a_miss_is_dropped_once_a_newer_print_exists() {
+    let print = |t: i64| PrintMsg {
+        price: 1,
+        conf: 0,
+        expo: -3,
+        publish_time: t,
+        prev_publish_time: t - 1,
+    };
+    // At first nothing at or after 105 exists.
+    let mut fake = FakeHermes::new(vec![print(100), print(110)]);
+    fake.now = 104;
+    let source = HermesSource::new(config(), &fake);
+    assert_eq!(source.first_at_or_after(&FEED, 105).unwrap(), None);
+    drop(source);
+    // Later the print at 110 is published: a fresh source sees it (its `/latest` is past 105),
+    // and so would this one after its 10 s `/latest` cache; the miss never hides it for good.
+    fake.now = 120;
+    let source = HermesSource::new(config(), &fake);
+    assert_eq!(
+        source
+            .first_at_or_after(&FEED, 105)
+            .unwrap()
+            .unwrap()
+            .print
+            .publish_time,
+        110
+    );
+}
