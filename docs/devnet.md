@@ -138,11 +138,19 @@ METALBOOK_HERMES_API_KEY=... cargo run -p metalbook-keeper --example hermes -- -
 Bearer auth (the default) was verified on 2026-10-30. Run `make pyth-programs` before the
 LiteSVM tests: it dumps the receiver and Wormhole from devnet and checks their hashes.
 
-**GAP: posting and the keeper binary.**
-- Each print must become a `Full` `PriceUpdateV2` through Wormhole's encoded VAA and the
-  receiver's `post_update` (M7b-2).
-- The keeper needs an RPC `Chain` implementation and a binary that runs `tick` every minute for
-  each live series.
+Then run the keeper binary for the deployment (the payer signs every post and gets the
+temporary accounts' rent back):
+
+```sh
+cargo run --release -p metalbook-cli --bin metalbook-keeper   # reads SOLANA_URL, METALBOOK_PROGRAM_ID, METALBOOK_KEYPAIR and the Hermes key
+```
+
+Every 60 seconds it lists the program's series (`getProgramAccounts`, 504-byte accounts) and
+ticks each one from the start of its averaging window until it is settled or voided. Add
+`--series <ADDRESS>` to restrict it, `--once` for one pass. `--check-post <SERIES>` posts the
+feed's latest print to one series (its fallback candidate) and exits: a check of the whole
+path (Hermes, Wormhole, the receiver, `sample_settlement`) before a window. At startup it closes encoded VAAs this payer left by
+posts that failed after verification.
 
 ### 6. Exercise the lifecycle
 
@@ -175,8 +183,8 @@ Every transaction signature goes into the log below.
 2. ~~M7b-2: Pyth receiver posting~~: done, `metalbook_keeper::receiver` (encoded VAA,
    `verify_encoded_vaa_v1`, receiver `post_update` for a `Full` update, then
    `sample_settlement` and both closes), tested in LiteSVM against the real programs.
-3. **An RPC `Chain` for the keeper and a keeper binary.** It depends on item 2 for `post`; reading
-   accounts and `settle` do not.
+3. ~~An RPC `Chain` and a keeper binary~~: done, `metalbook_cli::keeper_chain::RpcChain` and
+   `metalbook-keeper` (milestone 7c).
 
 ## Deployment log
 

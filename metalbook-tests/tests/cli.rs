@@ -203,3 +203,27 @@ fn the_admin_cli_lists_a_series_from_scratch() {
     submit(&mut rpc, &[ix], &payer).unwrap();
     assert_eq!(read_calendar(&mut rpc, &PROGRAM_ID, XAG).unwrap().count, 1);
 }
+
+#[test]
+fn the_admin_cli_mints_for_a_writer_creating_its_long_account() {
+    let mut env = Env::new();
+    let args = common::SeriesArgs::xau_call(4_000);
+    let series = env.create_series(args);
+    // Three contracts of a 4000/4400 call at 1 oz hold 3 × 400 USD.
+    let writer = env.writer(1_200);
+    let mut rpc = Svm(&mut env);
+    let ixs = metalbook_cli::mint_ixs(&mut rpc, &PROGRAM_ID, &writer.pubkey(), &series, 2).unwrap();
+    assert_eq!(ixs.len(), 2, "create the long-token account, then mint");
+    submit(&mut rpc, &ixs, &writer).unwrap();
+    // Again: the account creation is idempotent.
+    let ixs = metalbook_cli::mint_ixs(&mut rpc, &PROGRAM_ID, &writer.pubkey(), &series, 1).unwrap();
+    submit(&mut rpc, &ixs, &writer).unwrap();
+    let shown = series_json(
+        &series,
+        &read_series(&mut rpc, &PROGRAM_ID, &series).unwrap(),
+    );
+    assert_eq!(shown["open"], 3);
+    assert_eq!(shown["longs_outstanding"], 3);
+    let long = pda::ata(&writer.pubkey(), &pda::long_mint(&PROGRAM_ID, &series).0);
+    assert_eq!(env.token_balance(&long), 3);
+}

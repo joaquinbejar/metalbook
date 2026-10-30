@@ -108,15 +108,24 @@ impl Keeper {
             view = read(chain, series)?;
         }
 
-        // 3. The latest fallback, if later than the stored one.
+        // 3. The latest fallback, if later than the stored one, from expiry on: before it, any
+        // fallback is superseded by a later one, and nothing can settle before expiry anyway.
+        // At or after expiry the query is the same for every series of the feed and expiry,
+        // which matters under Hermes' rate limit (`docs/PLAN.md` M7c).
         let earliest = view
             .expiry
             .checked_sub(i64::from(p.fallback_lookback_s()))
             .ok_or(KeeperError::Config("lookback overflow"))?;
         // The latest *eligible* print: step back past ineligible ones.
         let stored = view.candidates.parts().fallback_time;
-        let mut upto = view.expiry.min(now);
-        while let Some(m) = source.latest_at_or_before(&feed, upto, earliest, now)? {
+        let mut upto = view.expiry;
+        // Before expiry the search starts empty and the loop does not run.
+        let mut next = if now >= view.expiry {
+            source.latest_at_or_before(&feed, upto, earliest, now)?
+        } else {
+            None
+        };
+        while let Some(m) = next.take() {
             if m.publish_time <= stored {
                 break;
             }
@@ -129,6 +138,7 @@ impl Keeper {
                 .publish_time
                 .checked_sub(1)
                 .ok_or(KeeperError::Config("time overflow"))?;
+            next = source.latest_at_or_before(&feed, upto, earliest, now)?;
         }
 
         // 4. Settle as soon as the cascade allows it.

@@ -12,8 +12,15 @@ publish = false
 name = "metalbook-admin"
 path = "src/main.rs"
 
+[[bin]]
+name = "metalbook-keeper"
+path = "src/bin/keeper.rs"
+# Its name matches the metalbook-keeper library, whose documentation page it would overwrite.
+doc = false
+
 [dependencies]
 metalbook-sdk = { workspace = true }
+metalbook-keeper = { workspace = true }
 # The generation metalbook-sdk builds instructions with (LiteSVM's, docs/PLAN.md exception).
 solana-address = { workspace = true, features = ["decode"] }
 solana-instruction = { workspace = true }

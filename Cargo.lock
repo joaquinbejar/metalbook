@@ -2698,6 +2698,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "clap",
+ "metalbook-keeper",
  "metalbook-sdk",
  "serde",
  "serde_json",

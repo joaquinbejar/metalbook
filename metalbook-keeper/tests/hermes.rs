@@ -44,6 +44,8 @@ struct FakeHermes {
     tape: Vec<PrintMsg>,
     now: i64,
     status: Option<u16>,
+    /// Leading requests answered 429 (rate limited).
+    throttled: std::cell::Cell<u32>,
     seen: RefCell<Vec<Request>>,
 }
 
@@ -53,6 +55,7 @@ impl FakeHermes {
             tape,
             now: i64::MAX,
             status: None,
+            throttled: std::cell::Cell::new(0),
             seen: RefCell::new(Vec::new()),
         }
     }
@@ -80,6 +83,13 @@ impl HttpGet for FakeHermes {
         self.seen
             .borrow_mut()
             .push((url.to_string(), headers.to_vec()));
+        if self.throttled.get() > 0 {
+            self.throttled.set(self.throttled.get() - 1);
+            return Ok(HttpResponse {
+                status: 429,
+                body: String::new(),
+            });
+        }
         if let Some(status) = self.status {
             return Ok(HttpResponse {
                 status,
@@ -196,9 +206,37 @@ fn test_status_handling() {
         let r = HermesSource::new(config(), fake).first_at_or_after(&FEED, 1);
         assert_eq!(r.is_ok(), ok, "{status}: {r:?}");
         if status == 401 {
-            assert!(format!("{r:?}").contains("unverified"));
+            assert!(format!("{r:?}").contains("check the key"));
         }
     }
+}
+
+#[test]
+fn test_rate_limited_requests_are_retried_then_given_up() {
+    let print = PrintMsg {
+        price: 1,
+        conf: 0,
+        expo: -3,
+        publish_time: 100,
+        prev_publish_time: 99,
+    };
+    let zero = vec![std::time::Duration::ZERO; 3];
+    // Two 429s, then the answer: three requests, success.
+    let fake = FakeHermes::new(vec![print]);
+    fake.throttled.set(2);
+    let r = HermesSource::new(config(), &fake)
+        .with_backoff(zero.clone())
+        .first_at_or_after(&FEED, 100);
+    assert_eq!(r.unwrap().unwrap().print, print);
+    assert_eq!(fake.seen.borrow().len(), 3);
+    // Rate limited beyond the backoff: one request plus one per step, then an error.
+    let fake = FakeHermes::new(vec![print]);
+    fake.throttled.set(10);
+    let r = HermesSource::new(config(), &fake)
+        .with_backoff(zero)
+        .first_at_or_after(&FEED, 100);
+    assert!(format!("{r:?}").contains("429"), "{r:?}");
+    assert_eq!(fake.seen.borrow().len(), 4);
 }
 
 /// The tape of the keeper tests' shape: a print every 1 to 3 seconds, a same-second repeat
@@ -385,4 +423,34 @@ fn test_reflected_key_never_reaches_display_debug_or_the_example_output() {
     ] {
         assert!(!shown.contains("test-key"), "{shown}");
     }
+}
+
+#[test]
+fn test_found_updates_are_cached_by_query_and_publish_time() {
+    let t = tape();
+    let fake = FakeHermes::new(t.clone());
+    let source = HermesSource::new(config(), &fake);
+    let first = source.first_at_or_after(&FEED, 10_500).unwrap().unwrap();
+    assert_eq!(fake.seen.borrow().len(), 1);
+    // The same query, and a query at the update's own publish time, cost nothing.
+    assert_eq!(
+        source.first_at_or_after(&FEED, 10_500).unwrap().unwrap(),
+        first
+    );
+    assert_eq!(
+        source
+            .first_at_or_after(&FEED, first.print.publish_time)
+            .unwrap()
+            .unwrap(),
+        first
+    );
+    assert_eq!(fake.seen.borrow().len(), 1);
+    // Another time, and "nothing yet", are not served from the cache.
+    source.first_at_or_after(&FEED, 10_600).unwrap();
+    assert_eq!(fake.seen.borrow().len(), 2);
+    let none = FakeHermes::new(vec![]);
+    let empty = HermesSource::new(config(), &none);
+    assert_eq!(empty.first_at_or_after(&FEED, 5).unwrap(), None);
+    assert_eq!(empty.first_at_or_after(&FEED, 5).unwrap(), None);
+    assert_eq!(none.seen.borrow().len(), 2);
 }

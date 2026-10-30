@@ -7,6 +7,7 @@
 //! is the network implementation, and the LiteSVM tests drive the same commands through an in-process one.
 
 pub mod error;
+pub mod keeper_chain;
 pub mod params;
 pub mod rpc;
 
@@ -88,9 +89,25 @@ pub fn submit<R: Rpc>(
     instructions: &[Instruction],
     signer: &Keypair,
 ) -> Result<String, CliError> {
+    submit_signed(rpc, instructions, signer, &[])
+}
+
+/// As [`submit`], with `others` signing too (fresh account keypairs).
+///
+/// # Errors
+///
+/// [`CliError`] from signing, the node or the transport.
+pub fn submit_signed<R: Rpc>(
+    rpc: &mut R,
+    instructions: &[Instruction],
+    payer: &Keypair,
+    others: &[&Keypair],
+) -> Result<String, CliError> {
     let blockhash = rpc.latest_blockhash()?;
-    let mut tx = Transaction::new_with_payer(instructions, Some(&signer.pubkey()));
-    tx.try_sign(&[signer], blockhash)
+    let mut tx = Transaction::new_with_payer(instructions, Some(&payer.pubkey()));
+    let mut signers: Vec<&Keypair> = vec![payer];
+    signers.extend_from_slice(others);
+    tx.try_sign(&signers, blockhash)
         .map_err(|_| CliError::Sign("the instructions need another signer"))?;
     let signature = tx
         .signatures
@@ -225,6 +242,42 @@ pub fn set_calendar_ix(
         ));
     }
     Ok(ix::set_calendar(program_id, admin, underlying, expiries))
+}
+
+/// `mint` for `writer` (the signer), preceded by an idempotent creation of the writer's
+/// long-token account, which `mint` requires to exist. The series' USDC mint is read from it.
+///
+/// # Errors
+///
+/// As [`read_series`].
+pub fn mint_ixs<R: Rpc>(
+    rpc: &mut R,
+    program_id: &Address,
+    writer: &Address,
+    series: &Address,
+    contracts: u64,
+) -> Result<Vec<Instruction>, CliError> {
+    let s = read_series(rpc, program_id, series)?;
+    let usdc_mint = Address::new_from_array(s.usdc_mint);
+    let long_mint = Address::new_from_array(s.long_mint);
+    // Associated token program `CreateIdempotent` (1): payer, account, owner, mint, system
+    // program, token program.
+    let create_long_account = Instruction {
+        program_id: metalbook_sdk::ATA_PROGRAM,
+        accounts: vec![
+            solana_instruction::AccountMeta::new(*writer, true),
+            solana_instruction::AccountMeta::new(pda::ata(writer, &long_mint), false),
+            solana_instruction::AccountMeta::new_readonly(*writer, false),
+            solana_instruction::AccountMeta::new_readonly(long_mint, false),
+            solana_instruction::AccountMeta::new_readonly(metalbook_sdk::SYSTEM_PROGRAM, false),
+            solana_instruction::AccountMeta::new_readonly(metalbook_sdk::TOKEN_PROGRAM, false),
+        ],
+        data: vec![1],
+    };
+    Ok(vec![
+        create_long_account,
+        ix::mint(program_id, writer, series, &usdc_mint, contracts),
+    ])
 }
 
 /// The terms of a new series as given on the command line.

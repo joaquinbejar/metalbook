@@ -596,6 +596,35 @@ prices). Long token decimals 0. Strikes in USDC atoms per ounce on a configured 
    synthetic tape served with Hermes' semantics, answers identical to `TapeSource` for every
    query (including the `latest` anchor).
 
+   M7c (keeper binary): `metalbook_cli::keeper_chain::RpcChain` implements the keeper's
+   `Chain` over the CLI's `Rpc` (the `solana-rpc-client` cluster in production, LiteSVM in
+   tests): the clock from the Clock sysvar, account reads, `settle`, and `post`, which fetches
+   the binary update of the chosen print (an `UpdateSource`: Hermes, sharing the keeper's
+   cache), refuses it unless its signed message is exactly that print, and sends the two
+   M7b-2 transactions. The encoded VAA is recorded before anything is sent, and after any
+   error the account itself decides (codex, #26: a transaction can land while its
+   confirmation fails): if it still exists it is closed, and kept to retry before every later
+   post while it exists or cannot be read; once it is gone it is dropped; the
+   binary also finds this payer's leftovers at startup (`getProgramAccounts` on Wormhole
+   filtered by the `EncodedVaa` discriminator and the write authority). `metalbook-keeper`
+   lists the program's series every pass and ticks each from its window start until settled
+   or voided. The keeper now seeks the fallback only from expiry: before it, any fallback is
+   superseded by a later one and nothing can settle, and at expiry the query (the latest
+   print at or before expiry) is the same for every series of a feed and expiry.
+   `--check-post <SERIES>` posts the feed's latest print to one series and exits, to check
+   the whole path on a deployment before a window. Hermes' timestamp
+   endpoint allows about 10 requests a minute per key (measured: then 429 with
+   `retry-after: 60`), so `HermesSource` caches what it found (history does not change: the
+   first update at or after `t` is fixed once it exists), indexed by query time and by
+   publish time (first-of-second updates only), reuses `/latest` for 10 seconds so every
+   series of a pass shares one anchor, anchors on `/latest` whenever it is not after the
+   asked time, and retries a 429 once after 61 seconds (retrying inside Hermes' one-minute
+   window only extends it). LiteSVM tests drive
+   `Keeper::tick` through `RpcChain` and the real receiver and Wormhole: after expiry the
+   fallback is posted and the payer pays only signatures, before expiry nothing is posted; an update that is not the chosen print is
+   refused before anything is sent; a post that fails after verification closes the
+   encoded VAA.
+
    M7b-2 (receiver posting, `metalbook_keeper::receiver`): a Hermes binary update is parsed
    (`"PNAU"`, version 1, a Wormhole Merkle proof: the VAA and each feed's message with its
    20-byte Keccak-160 path, Pyth's big-endian wire format) and posted as the receiver's own

@@ -39,6 +39,12 @@ pub const WORMHOLE: Address =
 /// The system program.
 const SYSTEM_PROGRAM: Address = Address::from_str_const("11111111111111111111111111111111");
 
+/// Anchor account discriminator of an encoded VAA, `sha256("account:EncodedVaa")[..8]`.
+pub const ENCODED_VAA_DISCRIMINATOR: [u8; 8] = [226, 101, 163, 4, 133, 160, 84, 245];
+
+/// Offset of the write authority in an encoded VAA (after the discriminator and the status).
+pub const ENCODED_VAA_AUTHORITY_OFFSET: usize = 9;
+
 /// Offset of the VAA in an encoded VAA account.
 pub const VAA_START: usize = 46;
 
@@ -76,6 +82,38 @@ impl MerkleUpdate {
             Some((0, rest)) => rest.get(..32).and_then(|id| id.try_into().ok()),
             _ => None,
         }
+    }
+}
+
+impl MerkleUpdate {
+    /// The print a `PriceFeedMessage` carries (Pyth's wire format, big-endian): type 0, feed id,
+    /// price `i64`, conf `u64`, exponent `i32`, publish time `i64`, previous publish time `i64`,
+    /// then the EMA fields.
+    ///
+    /// # Errors
+    ///
+    /// `KeeperError::Update` if the message is not a price message or is too short.
+    pub fn print(&self) -> Result<crate::PrintMsg, KeeperError> {
+        let m = &self.message;
+        if m.first() != Some(&0) {
+            return Err(KeeperError::Update("not a price message"));
+        }
+        let field = |at: usize| -> Result<[u8; 8], KeeperError> {
+            m.get(at..at.saturating_add(8))
+                .and_then(|b| b.try_into().ok())
+                .ok_or(KeeperError::Update("price message too short"))
+        };
+        let expo: [u8; 4] = m
+            .get(49..53)
+            .and_then(|b| b.try_into().ok())
+            .ok_or(KeeperError::Update("price message too short"))?;
+        Ok(crate::PrintMsg {
+            price: i64::from_be_bytes(field(33)?),
+            conf: u64::from_be_bytes(field(41)?),
+            expo: i32::from_be_bytes(expo),
+            publish_time: i64::from_be_bytes(field(53)?),
+            prev_publish_time: i64::from_be_bytes(field(61)?),
+        })
     }
 }
 
@@ -263,6 +301,34 @@ pub struct PostInstructions {
     pub post_and_sample: Vec<Instruction>,
 }
 
+/// `close_encoded_vaa`: returns the encoded VAA's rent to its write authority (used after a
+/// post, and alone to clean up when the second transaction fails).
+#[must_use]
+pub fn close_encoded_vaa(write_authority: &Address, encoded_vaa: &Address) -> Instruction {
+    Instruction {
+        program_id: WORMHOLE,
+        accounts: vec![
+            AccountMeta::new(*write_authority, true),
+            AccountMeta::new(*encoded_vaa, false),
+        ],
+        data: disc::CLOSE_ENCODED_VAA.to_vec(),
+    }
+}
+
+/// Rent-exempt lamports for `size` bytes under the default rent (3,480 lamports per byte-year,
+/// two years, 128 bytes of account overhead), which every cluster uses.
+///
+/// # Errors
+///
+/// `KeeperError::Update` on overflow.
+pub fn rent_exempt(size: usize) -> Result<u64, KeeperError> {
+    u64::try_from(size)
+        .ok()
+        .and_then(|s| s.checked_add(128))
+        .and_then(|s| s.checked_mul(3_480 * 2))
+        .ok_or(KeeperError::Update("account too large"))
+}
+
 /// The size of the encoded VAA account for `update`.
 ///
 /// # Errors
@@ -364,14 +430,7 @@ pub fn post_instructions(
         ],
         data: disc::RECLAIM_RENT.to_vec(),
     };
-    let close = Instruction {
-        program_id: WORMHOLE,
-        accounts: vec![
-            AccountMeta::new(a.payer, true),
-            AccountMeta::new(a.encoded_vaa, false),
-        ],
-        data: disc::CLOSE_ENCODED_VAA.to_vec(),
-    };
+    let close = close_encoded_vaa(&a.payer, &a.encoded_vaa);
     Ok(PostInstructions {
         verify: vec![create, init, write, verify],
         post_and_sample: vec![post, sample, reclaim, close],
