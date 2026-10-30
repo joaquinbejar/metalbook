@@ -58,7 +58,9 @@ fn run(args: Args) -> Result<(), CliError> {
     let payer = read_keypair(&args.keypair)?;
     let payer_address = solana_signer::Signer::pubkey(&payer);
     let hermes = HermesConfig::from_env().map_err(|e| CliError::Usage(e.to_string()))?;
-    let source = HermesSource::new(hermes, UreqHttp::new());
+    // At most 6 Hermes requests a minute: the timestamp endpoint allows about 10 per key.
+    let source =
+        HermesSource::new(hermes, UreqHttp::new()).with_min_interval(Duration::from_secs(10));
     let fixed: Vec<Address> = args
         .series
         .iter()

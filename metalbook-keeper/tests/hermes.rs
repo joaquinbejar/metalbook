@@ -465,3 +465,24 @@ fn test_found_updates_are_cached_by_query_and_publish_time() {
     assert_eq!(empty.first_at_or_after(&FEED, 5).unwrap(), None);
     assert_eq!(none.seen.borrow().len(), 2);
 }
+
+#[test]
+fn test_requests_are_paced() {
+    let print = PrintMsg {
+        price: 1,
+        conf: 0,
+        expo: -3,
+        publish_time: 100,
+        prev_publish_time: 99,
+    };
+    let fake = FakeHermes::new(vec![print]);
+    let source =
+        HermesSource::new(config(), &fake).with_min_interval(std::time::Duration::from_millis(200));
+    let start = std::time::Instant::now();
+    for t in [100, 101, 102] {
+        source.first_at_or_after(&FEED, t).unwrap();
+    }
+    // Three requests: two waits of at least 200 ms between them.
+    assert!(start.elapsed() >= std::time::Duration::from_millis(400));
+    assert_eq!(fake.seen.borrow().len(), 3);
+}
