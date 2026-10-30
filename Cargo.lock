@@ -3030,7 +3030,8 @@ dependencies = [
 [[package]]
 name = "optfix"
 version = "0.1.0"
-source = "git+https://github.com/joaquinbejar/optfix?rev=204e26664a899b623d48013c0654cc292ec81a37#204e26664a899b623d48013c0654cc292ec81a37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28236ab95ac3d25f1485df48f739581917234efd121b11769bde6ca5d7afb81a"
 dependencies = [
  "bytemuck",
 ]
@@ -3520,7 +3521,8 @@ dependencies = [
 [[package]]
 name = "pyth-lite"
 version = "0.1.0"
-source = "git+https://github.com/joaquinbejar/varswap?rev=5cf95aa97ef01b0c4a540327f1501c8dcb7a7811#5cf95aa97ef01b0c4a540327f1501c8dcb7a7811"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7db340184e9e56981d8853ada40fb55b97d1b716e3c4ff4e4c9e5389a8d1197"
 
 [[package]]
 name = "qstring"
@@ -3616,7 +3618,8 @@ dependencies = [
 [[package]]
 name = "quotebook-core"
 version = "0.1.0"
-source = "git+https://github.com/joaquinbejar/quotebook?rev=578314c6ae03a3ab9ea4b045cfed60fa442ae607#578314c6ae03a3ab9ea4b045cfed60fa442ae607"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8965c58d2e04b9881534b4bf2c7c6aa7266aa2b60c908a186bb2f55e0ad6b727"
 dependencies = [
  "bytemuck",
  "solana-address 2.7.0",
@@ -3625,7 +3628,8 @@ dependencies = [
 [[package]]
 name = "quotebook-sdk"
 version = "0.1.0"
-source = "git+https://github.com/joaquinbejar/quotebook?rev=578314c6ae03a3ab9ea4b045cfed60fa442ae607#578314c6ae03a3ab9ea4b045cfed60fa442ae607"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3b407e240bcc3655a6f94ad490da723cdd7de9a938ab3e1262146649d15dc8e"
 dependencies = [
  "quotebook-core",
  "solana-address 2.7.0",

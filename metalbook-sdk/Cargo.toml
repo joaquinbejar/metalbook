@@ -6,7 +6,9 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = false
+readme = "../README.md"
+keywords = ["options", "gold", "silver", "solana", "sdk"]
+categories = ["finance", "api-bindings"]
 
 [dependencies]
 metalbook-core = { workspace = true }

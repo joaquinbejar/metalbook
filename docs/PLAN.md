@@ -722,9 +722,9 @@ whenever it is added or touched.
 | `pinocchio-system` | 0.7.0 (0.6.1 used) | `0.6`, decided exception below |
 | `pinocchio-token` | 0.7.0 | `0.7`, see conflict below |
 | `pinocchio-associated-token-account` | 0.4.0 | `0.4`, see conflict below |
-| `optfix` (maker) | unpublished | git, `rev = 204e266` (optfix#11, Black-Scholes-Merton) |
-| `pyth-lite` (varswap) | unpublished | git, `rev = 5cf95aa` |
-| `quotebook-core`, `quotebook-sdk` | unpublished | git, `rev = 578314c` (quotebook M5 SDK) |
+| `optfix` (maker) | 0.1.0 | `0.1` |
+| `pyth-lite` (varswap) | 0.1.0 | `0.1` |
+| `quotebook-core`, `quotebook-sdk` | 0.1.0 | `0.1` (the demo builds quotebook's program from tag `v0.1.0`) |
 | `rust_decimal` (maker) | 1.43.0 | `1.43` |
 | `thiserror` (maker) | 2.0.21 | `2.0` |
 | `optionstratlib` (maker, dev) | 0.23.0 | `0.23` |
