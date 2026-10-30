@@ -11,6 +11,7 @@ publish = false
 [dev-dependencies]
 litesvm = { workspace = true, features = ["precompiles"] }
 litesvm-token = { workspace = true }
+base64 = { workspace = true }
 metalbook-cli = { workspace = true }
 metalbook-core = { workspace = true }
 metalbook-keeper = { workspace = true }

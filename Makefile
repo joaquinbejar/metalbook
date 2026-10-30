@@ -34,6 +34,22 @@ quotebook-program:
 		if [ $$status -ne 0 ]; then cat target/build-quotebook.log; echo "quotebook-program: build failed ($$status)"; exit $$status; fi
 	@sh scripts/check-sbf-log.sh target/build-quotebook.log
 
+# The Pyth receiver and the Wormhole core bridge as deployed on devnet (the milestone 7b-2 LiteSVM
+# test posts a recorded Hermes update through them), dumped into target/deploy and checked
+# against the hashes below; a redeployment changes the hash and fails here, not in the test.
+PYTH_RPC ?= https://api.devnet.solana.com
+PYTH_RECEIVER_SHA256 := 0d6bf9142c2eb1fdb8ead48054491369bed3a8d6846c5887e362844155599ab2
+WORMHOLE_SHA256 := ca237355a04cc5ceeb788853833ae46c0cb8b0a728625e8f9bb9bc05d1e9c619
+.PHONY: pyth-programs
+pyth-programs:
+	@mkdir -p target/deploy
+	@solana program dump -u $(PYTH_RPC) rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ \
+		target/deploy/pyth_receiver.so > /dev/null
+	@solana program dump -u $(PYTH_RPC) HDwcJBJXjL9FpJ7UBsYBtaDjsBUhuLCUYoz3zr8SWWaQ \
+		target/deploy/wormhole_core_bridge.so > /dev/null
+	@echo "$(PYTH_RECEIVER_SHA256)  target/deploy/pyth_receiver.so" | shasum -a 256 -c -
+	@echo "$(WORMHOLE_SHA256)  target/deploy/wormhole_core_bridge.so" | shasum -a 256 -c -
+
 # Failing controls for `program`: the log check must reject a frame overflow in both wordings,
 # and a failing cargo-build-sbf (an unknown sBPF arch) must make `make program` fail.
 .PHONY: program-control
@@ -58,7 +74,7 @@ bench: program
 	cargo test -p metalbook-tests --release --test cu -- --nocapture
 
 # Run every test, including the property tests and the LiteSVM tests (which need
-# `make program` and `make quotebook-program` first). METALBOOK_PROPTEST_CASES=<n> overrides the case count.
+# `make program`, `make quotebook-program` and `make pyth-programs` first). METALBOOK_PROPTEST_CASES=<n> overrides the case count.
 .PHONY: test
 test:
 	cargo test --workspace --all-features
@@ -91,7 +107,7 @@ doc:
 
 # Pre-push checks: must pass with zero warnings
 .PHONY: pre-push
-pre-push: fmt-check lint lint-control program-control program quotebook-program test doc
+pre-push: fmt-check lint lint-control program-control program quotebook-program pyth-programs test doc
 
 .PHONY: clean
 clean:

@@ -26,6 +26,9 @@ pub enum KeeperError {
     /// A chain operation (read, post, settle) failed.
     #[error("chain operation failed: {0}")]
     Chain(String),
+    /// A Hermes binary update is malformed or lacks the feed (milestone 7b-2).
+    #[error("price update: {0}")]
+    Update(&'static str),
     /// A configuration value is missing or invalid.
     #[error("configuration: {0}")]
     Config(&'static str),
