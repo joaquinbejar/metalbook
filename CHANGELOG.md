@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The keeper uses pyth-post 0.1.1: its payer lock is `pyth_post::PayerLock`
+  (`payer-<address>.lock` in `$PYTH_POST_LOCK_DIR`, default `~/.local/state/pyth-post`), shared
+  with every pyth-post poster on the machine, instead of a metalbook lock in the temporary
+  directory; and its orphan scan is `pyth_post::LeftoverScanner`, which closes an encoded VAA
+  only after two scans at least 300 blocks apart have seen it unchanged.
+
 ## [0.1.0] - 2026-10-30
 
 First release. The crates.io packages are `metalbook-core` and `metalbook-sdk`; the program,

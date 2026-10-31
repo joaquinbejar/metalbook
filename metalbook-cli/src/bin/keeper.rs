@@ -6,8 +6,11 @@
 //! before the window the keeper would only refresh the fallback candidate each pass. Errors are
 //! printed per series and the loop goes on; neither the RPC URL nor the key is ever printed.
 //!
-//! One process per payer, enforced with a lock file: a second keeper's orphan scan would take
-//! this one's in-flight encoded VAAs for leftovers and close them (seen on devnet, 2026-10-30).
+//! One process per payer, enforced with `pyth_post::PayerLock` (shared with every other
+//! pyth-post poster on this machine, varswap's keeper included): a second poster's orphan scan
+//! could take this one's in-flight encoded VAAs for leftovers and close them (seen on devnet,
+//! 2026-10-30). Orphans are found with `pyth_post::LeftoverScanner`, which only reports an
+//! encoded VAA that consecutive scans have seen unchanged for `LEFTOVER_MIN_AGE` blocks.
 //! When Hermes rate limits a pass, the next pass resumes at the series where it stopped, so
 //! every series progresses under a recurring limit.
 
@@ -24,10 +27,11 @@ use metalbook_keeper::{
 };
 use metalbook_sdk::core::SeriesState;
 use metalbook_sdk::Address;
-use pyth_post::{scan_encoded_vaas, RpcTransport};
+use pyth_post::{LeftoverScanner, PayerLock, RpcTransport};
 
 /// Passes between two scans for orphaned encoded VAAs (about 10 minutes at the default
-/// interval).
+/// interval, well over `pyth_post::LEFTOVER_MIN_AGE` blocks: a leftover is reported by the
+/// second scan that sees it).
 const ORPHAN_SCAN_PASSES: u64 = 10;
 
 /// Settlement keeper for metalbook series.
@@ -72,7 +76,7 @@ fn run(args: Args) -> Result<(), CliError> {
         .iter()
         .map(|s| parse_address(s))
         .collect::<Result<_, _>>()?;
-    let _lock = lock_payer(&payer_address)?;
+    let _lock = PayerLock::acquire(&payer_address).map_err(|e| CliError::Usage(e.to_string()))?;
     let cluster = Cluster::new(&args.url);
     let mut chain = RpcChain::new(RpcTransport::new(&args.url), &source, program_id, payer);
 
@@ -101,11 +105,13 @@ fn run(args: Args) -> Result<(), CliError> {
         u64::try_from(SERIES_LEN).map_err(|_| CliError::Usage("series size".into()))?;
     let mut pass: u64 = 0;
     let mut resume: Option<Address> = None;
+    let mut leftovers = LeftoverScanner::new();
     loop {
         // Encoded VAAs this payer left open (a post that failed after verification, or one
-        // whose creation landed late): at startup and every ORPHAN_SCAN_PASSES passes.
+        // whose creation landed late): scanned at startup and every ORPHAN_SCAN_PASSES passes,
+        // closed once two scans LEFTOVER_MIN_AGE blocks apart have seen them unchanged.
         if pass.checked_rem(ORPHAN_SCAN_PASSES) == Some(0) {
-            let scan = scan_encoded_vaas(&*chain.transport(), &payer_address);
+            let scan = leftovers.scan(&*chain.transport(), &payer_address);
             match scan {
                 Ok(found) if !found.is_empty() => {
                     println!("closing {} orphaned encoded VAA(s)", found.len());
@@ -179,29 +185,6 @@ fn resume_at(series: &mut [Address], resume: Option<Address>) {
 /// Whether a tick failed on Hermes' rate limit (`HermesSource`'s 429 and cooldown errors).
 fn is_rate_limit(error: &str) -> bool {
     error.contains("HTTP 429") || error.contains("rate limit")
-}
-
-/// Holds an exclusive lock on a file named after the payer in the temporary directory for the
-/// process' lifetime (released on exit).
-///
-/// # Errors
-///
-/// [`CliError::Usage`] when another keeper holds it.
-fn lock_payer(payer: &Address) -> Result<std::fs::File, CliError> {
-    let path = std::env::temp_dir().join(format!("metalbook-keeper-{payer}.lock"));
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(&path)
-        .map_err(|e| CliError::Usage(format!("lock file {}: {e}", path.display())))?;
-    file.try_lock().map_err(|_| {
-        CliError::Usage(format!(
-            "another keeper already runs with payer {payer} (lock {}): one keeper per payer",
-            path.display()
-        ))
-    })?;
-    Ok(file)
 }
 
 fn main() -> ExitCode {

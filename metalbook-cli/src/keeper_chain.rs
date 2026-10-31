@@ -76,8 +76,9 @@ pub struct RpcChain<T, U> {
 
 impl<T: Transport, U: UpdateSource> RpcChain<T, U> {
     /// A chain over `transport` for `program_id`, paying with `payer` (also the write authority
-    /// of the temporary accounts, so their rent returns to it). One keeper process per payer:
-    /// another one's orphan scan would see this one's in-flight accounts.
+    /// of the temporary accounts, so their rent returns to it). One poster per payer
+    /// (`pyth_post::PayerLock` across processes; this chain is not shared across threads):
+    /// another poster's orphan scan would see this one's in-flight accounts.
     pub fn new(transport: T, updates: U, program_id: Address, payer: Keypair) -> Self {
         Self {
             transport: RefCell::new(transport),
@@ -99,7 +100,7 @@ impl<T: Transport, U: UpdateSource> RpcChain<T, U> {
         solana_signer::Signer::pubkey(&self.payer)
     }
 
-    /// Adds encoded VAAs to close (for example found by `pyth_post::scan_encoded_vaas`).
+    /// Adds encoded VAAs to close (for example reported by `pyth_post::LeftoverScanner`).
     pub fn adopt_orphans(&mut self, orphans: impl IntoIterator<Item = Address>) {
         for address in orphans {
             if self.pending.iter().all(|p| p.address() != address) {
