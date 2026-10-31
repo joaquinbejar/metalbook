@@ -3526,9 +3526,9 @@ checksum = "d7db340184e9e56981d8853ada40fb55b97d1b716e3c4ff4e4c9e5389a8d1197"
 
 [[package]]
 name = "pyth-post"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1225efb012197e8a29e43e5848cbad5fa709bc59444a45a09fc88d2be09656b9"
+checksum = "7d1116bf01b0d0fb199ce2bd1ed7bc9abd853d0fe0c673e3780a2eeacee11c28"
 dependencies = [
  "pyth-lite",
  "solana-address 2.7.0",
