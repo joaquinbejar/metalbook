@@ -13,6 +13,11 @@ All notable changes to this project are documented here. The format follows
   with every pyth-post poster on the machine, instead of a metalbook lock in the temporary
   directory; and its orphan scan is `pyth_post::LeftoverScanner`, which closes an encoded VAA
   only after two scans at least 300 blocks apart have seen it unchanged.
+- metalbook-maker uses optfix 0.2 (0.2.0 is `max_stable_version` on crates.io, checked
+  2026-11-01). Its only breaking change, `PricingError` becoming `#[non_exhaustive]`, needs no
+  code change: the maker maps every `PricingError` to `MakerError` without matching variants.
+  Marks and quotes are unchanged. No crates.io release: `metalbook-core` and `metalbook-sdk` do
+  not depend on optfix.
 
 ## [0.1.0] - 2026-10-30
 

@@ -25,13 +25,13 @@ pinocchio = { version = "0.11", default-features = false, features = ["cpi", "sh
 pinocchio-system = "0.6"
 pinocchio-token = "0.7"
 pinocchio-associated-token-account = "0.4"
-# Siblings, published on crates.io (checked 2026-10-30): pyth-lite 0.1.0 (varswap), optfix 0.1.0,
+# Siblings, published on crates.io (checked 2026-10-30): pyth-lite 0.1.0 (varswap), optfix 0.2.0 (checked 2026-11-01),
 # quotebook-core and quotebook-sdk 0.1.0.
 pyth-lite = "0.1"
 # Shared Pyth receiver posting (varswap), replacing metalbook_keeper::receiver; off-chain only
 # (metalbook-cli). 0.1.0 checked on crates.io on 2026-10-30.
 pyth-post = "0.1"
-optfix = "0.1"
+optfix = "0.2"
 quotebook-core = "0.1"
 quotebook-sdk = "0.1"
 # Off-chain only (metalbook-maker, metalbook-keeper). Versions checked on crates.io on 2026-10-29.
