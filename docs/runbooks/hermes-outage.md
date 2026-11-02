@@ -49,7 +49,7 @@ starts there (docs/runbooks/keeper-restart.md, failure modes). `metalbook-watch`
    command line or the output:
 
    ```sh
-   curl -s -o /dev/null -w '%{http_code}\n' https://hermes.pyth.network/v2/price_feeds?query=xau
+   curl -s -o /dev/null -w '%{http_code}\n' 'https://hermes.pyth.network/v2/price_feeds?query=xau'
    ```
 
    `200` means Hermes' public metadata answers and the failure is in the price endpoints;
@@ -60,7 +60,7 @@ starts there (docs/runbooks/keeper-restart.md, failure modes). `metalbook-watch`
 
 A slot whose canonical print exists can be backfilled after the window, as long as no settle
 happened (`docs/PLAN.md` 4.2, 4.3). With at least `min_samples` (20) slots and the rest
-missing, anyone can settle on that subset at `window_end + D`; with fewer, the cascade moves
-to the next-print chain, then to the hard deadline (docs/runbooks/stuck-settlement.md). Record
-the outage, its duration and each series' `settle_method` and `settlement_samples` in
-`docs/devnet-log.md`.
+missing, anyone can settle on that subset from `max(window_end, window_changed) + D` (each new
+slot restarts `D`); with fewer, the cascade moves to the next-print chain, then to the hard
+deadline (docs/runbooks/stuck-settlement.md). Record the outage, its duration and each
+series' `settle_method` and `settlement_samples` in `docs/devnet-log.md`.
