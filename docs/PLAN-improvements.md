@@ -51,7 +51,7 @@ devnet upgrade recorded in `docs/devnet-log.md`.
 
 ## Phase 1: hardening
 
-### H1. CI, as a required check (M)
+### H1. CI on every PR (M)
 
 Copy optfix M9 (`.github/workflows/ci.yml`, `.github/actions/toolchains/action.yml`) and
 adapt it:
@@ -69,10 +69,11 @@ adapt it:
 - Failing controls on scratch PRs (closed unmerged): an unformatted line, a planted failing
   test, an edited number in `docs/benchmarks.md`, and a wrong `PYTH_RECEIVER_SHA256`. Each
   must fail its own job, for that cause.
-- Badge in the README. After the first green run on `main`, set the CI jobs as required checks on `main`
-  (branch protection through `gh api`). The GO in message 43335 covers it.
+- Badge in the README. **No branch protection on metalbook** (Joaquin's decision, relayed in
+  bus 43727: required CI on `main` is for optfix only). Instead, a process rule: CI runs on
+  every PR, and a PR is merged only when every job is green.
 - *Done when* every job passes on the milestone's PR, CI reproduces `docs/benchmarks.md` byte
-  for byte, each failing control fails its job, and the checks are required on `main`.
+  for byte, and each failing control fails its job.
 
 ### H2. Verifiable build (M)
 
@@ -275,8 +276,8 @@ New flow per pass:
 
 ### P2. A second independent keeper, with alerts (M)
 
-- **Independent** means its own payer (H3), its own Hermes key, its own RPC endpoint, and
-  its own host or launchd agent. Both keepers post the same canonical candidates; races are
+- **Independent** means its own payer (H3), its own RPC endpoint, and its own host or
+  launchd agent. Both keepers post the same canonical candidates; races are
   already benign (the intent check in `keeper.rs`), and `PayerLock` keeps each payer to one
   process.
 - **Alerts** come from a separate `metalbook-cli watch`, which reads chain state and a
@@ -289,9 +290,9 @@ New flow per pass:
     With the optional Hermes check below, it becomes `missing at source` (no canonical print
     exists, which is expected during a halt, and the cascade handles it) or `not posted`
     (the print exists and no keeper posted it, which is a keeper fault).
-  - **Optional oracle check**: `watch --hermes` queries Hermes for overdue slots only, with
-    its own key (a third key, or none: then states stay `unknown`) and at most one request a
-    minute. It is scoped separately, since it adds a credential and a quota.
+  - **Optional oracle check**: `watch --hermes` queries Hermes for overdue slots only, at
+    most one request a minute, taken from metalbook's budget below (without it, states stay
+    `unknown`). It is scoped separately, since it adds a credential user and a quota share.
   - **Settle overdue**: not settled by `window_end + D + 10 min`.
   - **Void pending**: past `hard_deadline + D` and not settled or voided.
   - **Payer balance**: under a threshold, 0.5 SOL proposed.
@@ -312,9 +313,22 @@ New flow per pass:
   - loss of the remote heartbeat transport gives a `heartbeat unknown` alert, not a false
     "keeper dead";
   - each alert names its runbook.
+- **Hermes budget** (coordinator, bus 43727). The Hermes key is shared with varswap, at about
+  10 requests a minute on the timestamp endpoint. metalbook gets **at most 7 a minute in
+  total**, for the primary keeper, the second keeper and `watch --hermes` together; varswap
+  gets 3. Each process paces itself with `HermesSource::with_min_interval`, and the
+  intervals are chosen so the sum stays at or under 7:
+  - primary keeper: 12 s, 5 a minute (today's 10 s, 6 a minute, is lowered);
+  - second keeper: 30 s, 2 a minute; or 60 s, 1 a minute, when `watch --hermes` runs;
+  - `watch --hermes`: 60 s, 1 a minute.
+
+  The binary takes the interval as a flag with a floor of 12 s, and the runbook records
+  which process runs at which interval. A test checks the pacing (requests per simulated
+  minute, at each interval). The cost: a slower backfill, measured in the P3 baseline at
+  5 a minute.
 - **Questions for SOLANA-PROJECTS**:
   - the alert and heartbeat channel (the ACS bus, a webhook, or both);
-  - a second Hermes key, and where the second keeper runs.
+  - where the second keeper runs.
 - *Done when* both keepers have run one devnet window together, and a drill that stops one of
   them (by PID) leaves the other settling on time while `watch` raises the heartbeat alert.
 
