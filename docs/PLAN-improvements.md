@@ -374,7 +374,7 @@ New flow per pass:
 ## Order and dates
 
 1. **H1** CI, first, because every later PR is checked by it.
-2. **Before Nov 6**: the baseline logging PR, and H4's void and restart runbooks. P4's
+2. **Before Nov 6**: the baseline logging PR (it also lowers the keeper's Hermes pacing to 12 s, the P2 budget), and H4's void and restart runbooks. P4's
    `list-week` too, so the Nov 13 series exist in time.
 3. **Nov 6**: P3.
 4. **Then**: H5, H3, H2, P1 (measured on Nov 13), P2, and H4's audit scope last, once the
