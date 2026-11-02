@@ -30,3 +30,5 @@ pyth-lite and the series' acceptance rule (`metalbook_core::accept_print`).
 Marks and quotes are computed off-chain (`metalbook-maker` with optfix's pricer), so no
 instruction prices an option and nothing here measures it. If marking moves on-chain,
 its CU is measured here; optfix's own SBF costs are in its `docs/benchmarks.md`.
+
+The deployed binary is the verifiable build; its costs are in `docs/benchmarks-verifiable.md`.

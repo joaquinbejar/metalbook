@@ -1,0 +1,100 @@
+# Verifiable build (docs/PLAN-improvements.md, milestone H2; docs/verifiable-build.md).
+#
+# `make verifiable` (solana-verify 0.5.2 in the image the Makefile pins by digest) builds
+# metalbook-program twice, each time in a clean clone of the commit under test at a different
+# path, so no cached target/ takes part. The job fails unless the two hashes are equal and equal
+# to the hash recorded in docs/verifiable-build.md; it then measures that binary's CU and fails
+# unless docs/benchmarks-verifiable.md is the committed one. The binary is uploaded as an
+# artifact, so a devnet upgrade can deploy the bytes CI built and checked.
+#
+# The image is linux/amd64 only and builds natively here; on an ARM Mac it runs under
+# emulation, where the build hung (2026-11-02).
+
+name: Verifiable build
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verifiable-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_PIN: "1.99.1"
+  AGAVE_VERSION: "v4.4.0"
+  AGAVE_SHA256: "3363f4728fe786ac7036e342a20df928aa2e3e43f807fbdce67814840538c574"
+  PLATFORM_TOOLS_VERSION: "v1.57"
+  PLATFORM_TOOLS_SHA256: "b0f7af104adf726fff2a6a09ea2eb2f2d2965c92295f4d7388c08d140e0c2b00"
+  SOLANA_VERIFY_VERSION: "0.5.2"
+  CARGO_TERM_COLOR: never
+  MAKE_PINS: RUST_TOOLCHAIN=1.99.1 CARGO_FLAGS=--locked
+
+jobs:
+  verifiable:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/toolchains
+
+      - name: Cache solana-verify
+        id: solana-verify
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/solana-verify
+          key: solana-verify-${{ env.SOLANA_VERIFY_VERSION }}-${{ runner.os }}-${{ env.RUST_PIN }}
+
+      - name: solana-verify
+        if: steps.solana-verify.outputs.cache-hit != 'true'
+        run: cargo install --locked solana-verify --version "$SOLANA_VERIFY_VERSION"
+
+      - name: Toolchain inside the image
+        run: |
+          set -euo pipefail
+          image=$(sed -n 's/^VERIFY_IMAGE := //p' Makefile)
+          v=$(docker run --rm "$image" cargo build-sbf --version)
+          echo "$v"
+          for want in "cargo-build-sbf 4.3.0" "platform-tools v1.57" "rustc 1.95.0"; do
+            printf '%s\n' "$v" | grep -qxF "$want" || { echo "image: want '$want'"; exit 1; }
+          done
+
+      - name: Two clean builds
+        run: |
+          set -euo pipefail
+          commit=$(git rev-parse HEAD)
+          for build in first second; do
+            dir="$RUNNER_TEMP/$build"
+            git clone -q "$GITHUB_WORKSPACE" "$dir"
+            git -C "$dir" -c advice.detachedHead=false checkout -q "$commit"
+            make -C "$dir" verifiable
+            solana-verify get-executable-hash "$dir/target/verifiable/metalbook_program.so" \
+              > "$RUNNER_TEMP/$build.hash"
+          done
+          echo "commit $commit"
+          echo "first  $(cat "$RUNNER_TEMP/first.hash")"
+          echo "second $(cat "$RUNNER_TEMP/second.hash")"
+          cmp -s "$RUNNER_TEMP/first.hash" "$RUNNER_TEMP/second.hash" || \
+            { echo "the two clean builds differ"; exit 1; }
+          mkdir -p target/verifiable
+          cp "$RUNNER_TEMP/first/target/verifiable/metalbook_program.so" target/verifiable/
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: metalbook_program-verifiable
+          path: target/verifiable/metalbook_program.so
+          if-no-files-found: error
+
+      - name: Hash recorded in docs/verifiable-build.md
+        run: make verifiable-check
+
+      - name: CU of the verifiable binary
+        run: |
+          make $MAKE_PINS bench-verifiable
+          out=$(git status --porcelain docs/benchmarks-verifiable.md)
+          [ -z "$out" ] || { git diff docs/benchmarks-verifiable.md; echo "$out"; \
+            echo "docs/benchmarks-verifiable.md is not the committed one"; exit 1; }

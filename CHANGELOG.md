@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Verifiable build (H2): `make verifiable` builds the program with solana-verify 0.5.2 in the
+  verifiable-build image pinned by digest; `make verifiable-check` compares the hash with
+  `docs/verifiable-build.md`, and `make bench-verifiable` measures that binary into
+  `docs/benchmarks-verifiable.md`. The build's log goes through the stack-frame check of
+  `make program`, and `make verifiable-control` proves it and the exit status are enforced. The
+  CI workflow `verifiable.yml` builds it twice in clean clones, checks the hash and the CU
+  table, and uploads the binary. Devnet already runs that binary (hash `62718c46…`).
 - cargo-fuzz targets `settlement_model`, `sample_settlement` and `ledger_sequence` (`fuzz/`,
   its own workspace, nightly), with an independent settlement and payoff model and a
   `PriceUpdateV2` decoder as acceptance oracle; committed regressions replayed on stable by
