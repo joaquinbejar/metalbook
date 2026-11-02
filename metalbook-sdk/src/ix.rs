@@ -290,7 +290,7 @@ pub fn close(
 
 /// `sample_settlement`: anyone, with a posted `PriceUpdateV2` account.
 #[must_use]
-pub fn sample_settlement(
+pub fn   sample_settlement(
     program_id: &Address,
     series: &Address,
     price_update: &Address,
