@@ -77,9 +77,14 @@ adapt it:
 ### H2. Verifiable build (M)
 
 - `make verifiable`: `solana-verify build` (crate `solana-verify` 0.5.2, checked on crates.io
-  2026-11-02) in the `solanafoundation/solana-verifiable-build` image. The newest tag is
-  `4.3.0`; there is no `4.4.0` tag. So the verifiable binary is built with the 4.3.0
-  toolchain, not with the 4.5.0 `cargo-build-sbf` that `make bench` uses. That build's CU is
+  2026-11-02, installed with `cargo install --locked solana-verify --version 0.5.2`) in the
+  `solanafoundation/solana-verifiable-build` image, pinned by digest:
+  `4.3.0@sha256:12fd4c0a0790f0fc41ef74b0cdb6bccc167ba6137eb1adb749bac649481c86bd` (Docker Hub,
+  2026-11-02). The newest tag is `4.3.0`; there is no `4.4.0` tag. So the verifiable binary is
+  built with the 4.3.0 toolchain, not with the 4.5.0 `cargo-build-sbf` that `make bench` uses.
+  `docs/verifiable-build.md` keeps the evidence: the image digest, the `cargo build-sbf
+  --version` printed inside the image, the solana-verify version, the commit, and the
+  resulting hash. That build's CU is
   measured and recorded as its own row set in `docs/benchmarks.md`, because the deployed
   binary is the one whose costs matter.
 - The program hash (`solana-verify get-executable-hash`) is recorded in
@@ -137,7 +142,14 @@ There are four roles, held today by one key: the upgrade authority, the `Config`
     signatures, and the admin's calendar.
   - Invariants an auditor should break: the ledger identity, settlement only through the
     cascade, no payout above the maximum.
-  - Out of scope: the maker, the CLI, the keeper (off-chain, cannot move funds).
+  - Off-chain components, scoped separately with their own risks:
+    - The keeper and the CLI cannot move user funds through the program. But they sign with
+      hot keys that hold SOL and, on devnet today, every authority (H3). A bug or a
+      compromise can spend the payer's SOL, leak the Hermes key, or leave orphaned accounts.
+      A keeper that stops posting lets a subset settle under the trust assumption of 4.3.
+    - The maker sizes quotes and signs QuoteBook fills from its own wallet: its risk is the
+      maker's inventory, not the protocol's.
+    - These are reviewed for key handling and redaction, not audited as on-chain code.
   - Known limitations: the long mint's rent; quoting during the window.
 - *Done when* the void and restart runbooks have been followed verbatim in the P3 drill.
 
@@ -159,18 +171,33 @@ Three targets:
      averages.
 2. **`sample_settlement`** (LiteSVM, the real program). A `PriceUpdateV2` account with
    arbitrary bytes, owned by the receiver id and also by forged owners, against series in
-   every state.
-   - Invariants: no panic or abort, only `MetalbookError` codes; a rejected instruction
-     changes no account.
-   - Differential check: an accepted one changes the series exactly as the `settlement_model`
-     reference predicts.
+   every state. The input mixes arbitrary bytes with **seeded valid updates** (a real
+   `PriceUpdateV2` with mutated fields: price, conf, exponent, times, feed id, verification
+   level), so most runs exercise acceptance and not only rejection.
+   - **Acceptance oracle**: an independent model (`settlement_model` plus a decoder written
+     from the `PriceUpdateV2` layout, not pyth-lite) predicts accept or reject before the
+     transaction runs. The test fails on any disagreement, in either direction, so a
+     regression that rejects everything fails too.
+   - On accept: the series changes exactly as the model predicts. On reject: the error is a
+     `MetalbookError` or a standard `ProgramError` (malformed accounts), and the series and
+     every program and token account are byte-identical. Only the fee payer's lamports
+     change, by exactly the transaction fee, which is modelled separately.
+   - No panic or abort in any case.
 3. **`ledger_sequence`** (LiteSVM). Arbitrary sequences of `mint`, `close`, sample, `settle`,
    `redeem`, `claim_writer`, `close_series` and `close_position`, with clock warps,
    donations and several writers and holders.
-   - **Conservation** after every step: vault token balance = ledger `vault_owed` +
-     donations; at the end, every owed atom paid and the vault empty.
-   - **Rollback**: every failing transaction leaves every account it lists byte-identical,
-     compared on snapshots taken before it.
+   - **Conservation** while the series is open: vault token balance = ledger `vault_owed` +
+     donations received.
+   - **At `close_series`** (`processor/close.rs`): the donations are swept to the rent
+     payer's USDC account. The rent payer's USDC rises by exactly the donations, its lamports
+     by exactly the series and vault rent, and both accounts are gone.
+   - **Draining suffix**: an arbitrary sequence cannot promise an empty vault. Every case
+     therefore ends with an explicit valid suffix: settle if possible, redeem every long,
+     claim every writer, close. After it, every owed atom has been paid and the vault is
+     closed.
+   - **Rollback**: a failing transaction leaves every program-owned and token account it
+     lists byte-identical. The fee payer's lamports drop by exactly the fee, checked against
+     the fee model and not by byte equality.
 
 Report the executions per second of each target. *Done when* each target has run 1 hour
 locally without a finding (or with each finding fixed and its input in the regression set),
@@ -199,10 +226,24 @@ New flow per pass:
    of the same print is a second post, until a measured need justifies an address lookup
    table or a price update kept open across transactions (a pyth-post change, agreed with
    VARSWAP first).
-5. **Isolate failures**: if a chunk fails, re-read its series and drop those that hold the
-   candidate. Retry the rest once, then fall back to one post per series (today's path).
-   A failure blocks `settle` only for the series whose candidate is still missing; the rule
-   of codex #14 (never settle a subset the keeper knew how to complete) holds per series.
+5. **Isolate failures**, by outcome, never assuming atomic failure:
+   - **Confirmed rejection** (the transaction executed and failed, `pyth_post` returns an
+     error that is not `Uncertain`, and the encoded VAA is handled as today: closed, or
+     `Orphaned` and kept in `RpcChain`'s pending list). Re-read the chunk's series, drop
+     those that now hold the candidate, and resend the rest once in a new chunk. If that
+     fails too, fall back to one post per series (today's path) for this pass only.
+   - **Uncertain** (`PostError::Uncertain`: the transaction may still land until
+     `valid_until`). No retry and no fallback for that chunk while it is live: its encoded
+     VAA is tracked as `InFlight` with its last valid block height, exactly as today. The
+     chunk's series are re-planned on the next pass, after `close_orphans` has resolved the
+     in-flight account. So a late landing can never be posted twice: a re-plan revalidates,
+     and the candidate is already there.
+   - **Quota or network errors** (Hermes 429, RPC unreachable) stop the pass as today
+     (`resume_at`). They are not treated as a rejected member.
+   - **Bounds**: at most one resend per chunk per pass, and at most 3 passes for a candidate
+     before it is reported as stuck (an alert in P2). A failure blocks `settle` only for the
+     series whose candidate is still missing; the rule of codex #14 (never settle a subset
+     the keeper knew how to complete) holds per series.
 6. **Settle** the series whose cascade allows it, several `settle` instructions per
    transaction (3,176 CU each), chunked the same way.
 
@@ -211,10 +252,21 @@ New flow per pass:
     Oct 30 tape shape (16 + 7 series);
   - a chunk with one series already filled by an adversary still stores the others;
   - a failing chunk isolates the failure;
-  - the chunker never exceeds 1,232 bytes; a property test over random group sizes builds
-    and serializes real transactions.
+  - **late confirmation**: a chunk reported `Uncertain` that lands after the next pass has
+    started posts nothing twice, and the remaining series still progress;
+  - **late create**: an encoded VAA whose creation lands after `valid_until` was assumed is
+    found by the leftover scan and closed. Every temporary account is either kept in the
+    pending list or reclaimed, never leaked;
+  - **race between revalidation and send**: another keeper fills a member in between. The
+    chunk is rejected (confirmed), the member is dropped, and the rest is stored on the
+    resend;
+  - the chunker never exceeds 1,232 bytes; a property test over random group sizes builds,
+    signs and serializes the real transactions, compute-budget and cleanup instructions
+    included.
 - **Measurement**: count transactions, bytes and CU per window in LiteSVM for 23 and 26
-  series, batched against unbatched. On devnet, settle the Nov 13 series (listed in P4)
+  series, batched against unbatched. Bytes come from signed, serialized transactions, and CU
+  from runs against the deployed ELF (the H2 verifiable build), never from summing
+  standalone instruction rows. On devnet, settle the Nov 13 series (listed in P4)
   batched, and compare wall clock and transaction count with the Nov 6 baseline (P3). The
   numbers go in `docs/devnet-log.md` and in this file; the 7.7× estimate above is replaced
   by what was measured.
@@ -227,18 +279,41 @@ New flow per pass:
   its own host or launchd agent. Both keepers post the same canonical candidates; races are
   already benign (the intent check in `keeper.rs`), and `PayerLock` keeps each payer to one
   process.
-- **Alerts** come from a separate `metalbook-cli watch` that reads only chain state, so it
-  alerts even when both keepers are down.
-  - Rules:
-    - a window slot still empty two minutes after its print exists;
-    - `settle` not done by `window_end + D + 10 min`;
-    - a series past `hard_deadline` and not voided;
-    - a payer balance under a threshold (0.5 SOL proposed);
-    - leftover encoded VAAs;
-    - no keeper heartbeat (each keeper writes a status file per pass) for three intervals.
-  - Each alert says what is wrong and which runbook (H4) applies.
+- **Alerts** come from a separate `metalbook-cli watch`, which reads chain state and a
+  remote heartbeat, so it alerts even when both keepers are down. It cannot see when an
+  off-chain Pyth print first existed: a missing print leaves no chain evidence, and the
+  receiver account of a past post may already be closed. So lag is measured against the
+  **schedule**, not against the print:
+  - **Window slot overdue**: slot `i` still empty at `t_i + slot_tolerance_s + grace`
+    (grace 120 s proposed). Its state is `overdue`, with oracle availability `unknown`.
+    With the optional Hermes check below, it becomes `missing at source` (no canonical print
+    exists, which is expected during a halt, and the cascade handles it) or `not posted`
+    (the print exists and no keeper posted it, which is a keeper fault).
+  - **Optional oracle check**: `watch --hermes` queries Hermes for overdue slots only, with
+    its own key (a third key, or none: then states stay `unknown`) and at most one request a
+    minute. It is scoped separately, since it adds a credential and a quota.
+  - **Settle overdue**: not settled by `window_end + D + 10 min`.
+  - **Void pending**: past `hard_deadline + D` and not settled or voided.
+  - **Payer balance**: under a threshold, 0.5 SOL proposed.
+  - **Leftover encoded VAAs** of either payer, found by `LeftoverScanner`.
+  - **Keeper heartbeat**: each keeper posts a heartbeat after every pass to a transport the
+    watcher reads remotely. Proposed: an ACS bus message on a `metalbook-keepers` channel,
+    or a note updated per pass; the coordinator chooses. A missing heartbeat for three
+    intervals raises an alert. A local status file is not enough when the keepers run on
+    different hosts.
+- **Host independence**: two LaunchAgents on the Studio are independent processes and
+  payers, not independent hosts. The plan claims host-failure independence only if the
+  second keeper runs on another machine; otherwise the doc says "process-independent".
+- **Controls** (deterministic, on a LiteSVM clock with a scripted source):
+  - a missing print gives `overdue` and `unknown`, or `missing at source` with the Hermes
+    check;
+  - a dead keeper gives a heartbeat alert after three intervals, while the other keeper
+    keeps settling;
+  - loss of the remote heartbeat transport gives a `heartbeat unknown` alert, not a false
+    "keeper dead";
+  - each alert names its runbook.
 - **Questions for SOLANA-PROJECTS**:
-  - the alert channel (the ACS bus, a webhook, or both);
+  - the alert and heartbeat channel (the ACS bus, a webhook, or both);
   - a second Hermes key, and where the second keeper runs.
 - *Done when* both keepers have run one devnet window together, and a drill that stops one of
   them (by PID) leaves the other settling on time while `watch` raises the heartbeat alert.
