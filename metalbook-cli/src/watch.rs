@@ -256,21 +256,94 @@ pub fn heartbeat_due(last: Option<(i64, u64)>, digest: u64, now: i64) -> bool {
     }
 }
 
-/// Splits `current` against the keys announced before: the new alerts to announce and the
-/// keys that resolved.
-#[must_use]
-pub fn diff(
-    announced: &std::collections::BTreeSet<String>,
-    current: &[Alert],
-) -> (Vec<Alert>, Vec<String>) {
-    let keys: std::collections::BTreeSet<String> = current.iter().map(Alert::key).collect();
-    let new = current
-        .iter()
-        .filter(|a| !announced.contains(&a.key()))
-        .cloned()
-        .collect();
-    let resolved = announced.difference(&keys).cloned().collect();
-    (new, resolved)
+/// Announces alerts and their resolution, with delivery tracked per destination.
+///
+/// - An alert counts as announced to a destination only once its send succeeded; failed sends
+///   are retried on every step until they succeed.
+/// - A key resolves only when it was **observed** absent: a key matching an `unobserved`
+///   prefix of the step (its balance, scan or heartbeat read failed) is kept, never resolved
+///   on a failed observation.
+/// - A resolution notice is retried until sent.
+#[derive(Debug, Clone, Default)]
+pub struct Announcer {
+    /// Active keys: (delivered to the channel, delivered by DM).
+    active: BTreeMap<String, (bool, bool)>,
+    /// Resolved keys whose notice has not been sent yet.
+    resolving: std::collections::BTreeSet<String>,
+}
+
+impl Announcer {
+    /// A fresh announcer.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The active keys.
+    #[must_use]
+    pub fn active(&self) -> Vec<String> {
+        self.active.keys().cloned().collect()
+    }
+
+    /// One step: announce `current`, resolve what was observed gone. Returns what it sent
+    /// and what failed, one line each, for the log.
+    pub fn step<N: Notify>(
+        &mut self,
+        notify: &N,
+        channel: &str,
+        direct: &str,
+        current: &[Alert],
+        unobserved: &[String],
+    ) -> Vec<String> {
+        let mut log = Vec::new();
+        let now_keys: std::collections::BTreeSet<String> = current.iter().map(Alert::key).collect();
+        // Resolve: previously active, now absent, and observed.
+        let gone: Vec<String> = self
+            .active
+            .keys()
+            .filter(|k| !now_keys.contains(*k))
+            .filter(|k| !unobserved.iter().any(|p| k.starts_with(p.as_str())))
+            .cloned()
+            .collect();
+        for k in gone {
+            self.active.remove(&k);
+            self.resolving.insert(k);
+        }
+        // A key that came back before its resolution was sent is simply active again.
+        self.resolving.retain(|k| !now_keys.contains(k));
+        let pending: Vec<String> = self.resolving.iter().cloned().collect();
+        for k in pending {
+            let text = format!("RESOLVED {k}");
+            match notify.send(&Target::Channel(channel.into()), &text) {
+                Ok(()) => {
+                    self.resolving.remove(&k);
+                    log.push(text);
+                }
+                Err(e) => log.push(format!("resolution of {k} not sent (will retry): {e}")),
+            }
+        }
+        // Announce: every destination not yet delivered.
+        for alert in current {
+            let entry = self.active.entry(alert.key()).or_insert((false, false));
+            let text = alert.text();
+            if !entry.0 {
+                match notify.send(&Target::Channel(channel.into()), &text) {
+                    Ok(()) => {
+                        entry.0 = true;
+                        log.push(text.clone());
+                    }
+                    Err(e) => log.push(format!("alert to the channel not sent (will retry): {e}")),
+                }
+            }
+            if !entry.1 {
+                match notify.send(&Target::Direct(direct.into()), &text) {
+                    Ok(()) => entry.1 = true,
+                    Err(e) => log.push(format!("alert by DM not sent (will retry): {e}")),
+                }
+            }
+        }
+        log
+    }
 }
 
 /// Where a message goes.
@@ -510,17 +583,76 @@ mod tests {
         assert_eq!(liveness_alerts(&keepers, Some(&none), 0).len(), 2);
     }
 
+    /// Records every send; fails while `down` (one destination or all).
+    #[derive(Default)]
+    struct Recorder {
+        sent: std::cell::RefCell<Vec<(Target, String)>>,
+        down: std::cell::Cell<bool>,
+    }
+
+    impl Notify for Recorder {
+        fn send(&self, target: &Target, body: &str) -> Result<(), String> {
+            if self.down.get() {
+                return Err("bus unreachable".into());
+            }
+            self.sent
+                .borrow_mut()
+                .push((target.clone(), body.to_string()));
+            Ok(())
+        }
+        fn read_channel(&self, _: &str) -> Result<Vec<(i64, String)>, String> {
+            Ok(Vec::new())
+        }
+    }
+
+    fn low(lamports: u64) -> Alert {
+        Alert::LowBalance {
+            payer: Address::new_from_array([7; 32]),
+            lamports,
+        }
+    }
+
     #[test]
-    fn test_diff_announces_once_and_resolves() {
-        let a = Alert::HeartbeatUnknown;
-        let mut announced = std::collections::BTreeSet::new();
-        let (new, resolved) = diff(&announced, std::slice::from_ref(&a));
-        assert_eq!((new.len(), resolved.len()), (1, 0));
-        announced.insert(a.key());
-        let (new, _) = diff(&announced, std::slice::from_ref(&a));
-        assert!(new.is_empty());
-        let (_, resolved) = diff(&announced, &[]);
-        assert_eq!(resolved, vec!["heartbeat-unknown".to_string()]);
-        assert!(a.text().contains("Runbook: "));
+    fn test_a_failed_delivery_is_retried_until_it_succeeds_and_sent_once() {
+        let n = Recorder::default();
+        let mut a = Announcer::new();
+        n.down.set(true);
+        a.step(&n, CHANNEL, "c/s", &[low(1)], &[]);
+        assert!(n.sent.borrow().is_empty());
+        // Recovered: the persistent alert goes out to both destinations, once.
+        n.down.set(false);
+        a.step(&n, CHANNEL, "c/s", &[low(1)], &[]);
+        a.step(&n, CHANNEL, "c/s", &[low(1)], &[]);
+        assert_eq!(n.sent.borrow().len(), 2);
+    }
+
+    #[test]
+    fn test_an_unobserved_condition_is_never_resolved_until_observed_gone() {
+        let n = Recorder::default();
+        let mut a = Announcer::new();
+        let payer_key = low(1).key();
+        a.step(&n, CHANNEL, "c/s", &[low(1)], &[]);
+        // The balance read fails: no alert computed, but no RESOLVED either.
+        a.step(&n, CHANNEL, "c/s", &[], std::slice::from_ref(&payer_key));
+        assert_eq!(a.active(), vec![payer_key.clone()]);
+        assert!(n
+            .sent
+            .borrow()
+            .iter()
+            .all(|(_, b)| !b.starts_with("RESOLVED")));
+        // Observed and fine: resolved, once; a failed resolution notice is retried.
+        n.down.set(true);
+        a.step(&n, CHANNEL, "c/s", &[], &[]);
+        assert!(a.active().is_empty());
+        n.down.set(false);
+        a.step(&n, CHANNEL, "c/s", &[], &[]);
+        a.step(&n, CHANNEL, "c/s", &[], &[]);
+        let resolved = n
+            .sent
+            .borrow()
+            .iter()
+            .filter(|(_, b)| b == &format!("RESOLVED {payer_key}"))
+            .count();
+        assert_eq!(resolved, 1);
     }
 }

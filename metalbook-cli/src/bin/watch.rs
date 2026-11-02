@@ -7,7 +7,6 @@
 //! past its tolerance and grace), never against a print it cannot see. It needs no Hermes key
 //! and holds no signing key. The RPC URL is never printed.
 
-use std::collections::BTreeSet;
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -15,8 +14,8 @@ use clap::Parser;
 use metalbook_cli::params::parse_address;
 use metalbook_cli::rpc::Cluster;
 use metalbook_cli::watch::{
-    diff, latest_heartbeats, liveness_alerts, series_alerts, AcsCli, Alert, Notify, Target,
-    CHANNEL, LOW_BALANCE_LAMPORTS,
+    latest_heartbeats, liveness_alerts, series_alerts, AcsCli, Alert, Announcer, Notify, CHANNEL,
+    LOW_BALANCE_LAMPORTS,
 };
 use metalbook_cli::CliError;
 use metalbook_keeper::{SeriesView, SERIES_LEN};
@@ -88,7 +87,7 @@ fn run(args: &Args) -> Result<(), CliError> {
     };
     let mut scanners: Vec<LeftoverScanner> =
         payers.iter().map(|_| LeftoverScanner::new()).collect();
-    let mut announced: BTreeSet<String> = BTreeSet::new();
+    let mut announcer = Announcer::new();
     let series_len =
         u64::try_from(SERIES_LEN).map_err(|_| CliError::Usage("series size".into()))?;
     loop {
@@ -97,10 +96,15 @@ fn run(args: &Args) -> Result<(), CliError> {
             Ok(t) => t,
             Err(e) => {
                 eprintln!("clock: {e}");
+                if args.once {
+                    return Err(CliError::Rpc(e.to_string()));
+                }
                 std::thread::sleep(Duration::from_secs(args.interval_s));
                 continue;
             }
         };
+        // Keys whose observation failed this round: never resolved on a failed read.
+        let mut unobserved: Vec<String> = Vec::new();
         // Every series with its data in one call (or the fixed list in one call per 100).
         let listed = if fixed.is_empty() {
             cluster.accounts_with_data_of_size(&program_id, series_len)
@@ -136,7 +140,10 @@ fn run(args: &Args) -> Result<(), CliError> {
                     });
                 }
                 Ok(_) => {}
-                Err(e) => eprintln!("balance of {payer}: {e}"),
+                Err(e) => {
+                    eprintln!("balance of {payer}: {e}");
+                    unobserved.push(format!("balance:{payer}"));
+                }
             }
             match scanner.scan(&transport, payer) {
                 Ok(found) if !found.is_empty() => alerts.push(Alert::Leftovers {
@@ -144,7 +151,10 @@ fn run(args: &Args) -> Result<(), CliError> {
                     count: found.len(),
                 }),
                 Ok(_) => {}
-                Err(e) => eprintln!("leftover scan of {payer}: {e}"),
+                Err(e) => {
+                    eprintln!("leftover scan of {payer}: {e}");
+                    unobserved.push(format!("leftovers:{payer}"));
+                }
             }
         }
         if !args.keeper.is_empty() {
@@ -153,6 +163,10 @@ fn run(args: &Args) -> Result<(), CliError> {
                 .map(|m| latest_heartbeats(&m))
                 .map_err(|e| eprintln!("heartbeats: {e}"))
                 .ok();
+            if seen.is_none() {
+                // Liveness unknown: a silent keeper is not proven back.
+                unobserved.push("silent:".into());
+            }
             alerts.extend(liveness_alerts(&args.keeper, seen.as_ref(), now));
         }
 
@@ -163,27 +177,9 @@ fn run(args: &Args) -> Result<(), CliError> {
             println!("{} alert(s) at {now}", alerts.len());
             return Ok(());
         }
-        let (new, resolved) = diff(&announced, &alerts);
-        for a in &new {
-            let text = a.text();
-            println!("{text}");
-            for target in [
-                Target::Channel(CHANNEL.into()),
-                Target::Direct(args.alert_to.clone()),
-            ] {
-                if let Err(e) = acs.send(&target, &text) {
-                    eprintln!("alert not sent: {e}");
-                }
-            }
+        for line in announcer.step(&acs, CHANNEL, &args.alert_to, &alerts, &unobserved) {
+            println!("{line}");
         }
-        for key in &resolved {
-            let text = format!("RESOLVED {key}");
-            println!("{text}");
-            if let Err(e) = acs.send(&Target::Channel(CHANNEL.into()), &text) {
-                eprintln!("resolution not sent: {e}");
-            }
-        }
-        announced = alerts.iter().map(Alert::key).collect();
         std::thread::sleep(Duration::from_secs(args.interval_s));
     }
 }
