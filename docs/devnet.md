@@ -158,6 +158,11 @@ One keeper per payer: the payer is locked with `pyth_post::PayerLock`
 by the leftover scan (at startup and every 10 passes) and closed once two scans 300 blocks
 apart have seen them unchanged.
 
+Each pass is batched by default (`docs/PLAN-improvements.md` P1). Every series in its window
+is planned first, the candidates are grouped by signed print, and each print is posted once
+for up to 10 series (as many as the post's last transaction carries; computed per update).
+`--no-batch` posts once per series and candidate, as before.
+
 Hermes budget: the key is shared with varswap, and metalbook's processes together send at
 most 7 requests a minute. `--hermes-interval-s` (default and floor 12, so 5 a minute) paces
 every request of this process; a second keeper takes 30 (2 a minute).

@@ -154,7 +154,7 @@ impl Keeper {
     }
 }
 
-fn read<C: Chain>(chain: &C, series: &C::Address) -> Result<SeriesView, KeeperError> {
+pub(crate) fn read<C: Chain>(chain: &C, series: &C::Address) -> Result<SeriesView, KeeperError> {
     let data = chain
         .account_data(series)?
         .ok_or(KeeperError::Decode("series account not found"))?;
@@ -162,7 +162,7 @@ fn read<C: Chain>(chain: &C, series: &C::Address) -> Result<SeriesView, KeeperEr
 }
 
 /// Whether the series accepts `m` (`metalbook_core::accept_print`, the program's own rule).
-fn eligible(view: &SeriesView, m: &PrintMsg) -> bool {
+pub(crate) fn eligible(view: &SeriesView, m: &PrintMsg) -> bool {
     accept_print(
         m.price,
         m.conf,
@@ -176,8 +176,8 @@ fn eligible(view: &SeriesView, m: &PrintMsg) -> bool {
 }
 
 /// The candidate a post is meant to store.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Intent {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum Intent {
     /// Window slot `i`.
     Slot(u32),
     /// The chain link with this publish time.
@@ -192,7 +192,7 @@ enum Intent {
 /// Any other failure (receiver, RPC, sample rejected with the candidate still missing) is an
 /// error: the tick stops before `settle`, so a failed post can never let a subset settle that
 /// the keeper knew how to complete (codex, #14).
-fn post<C: Chain>(
+pub(crate) fn post<C: Chain>(
     chain: &mut C,
     series: &C::Address,
     feed: &[u8; 32],
@@ -202,8 +202,19 @@ fn post<C: Chain>(
     let Err(error) = chain.post(series, feed, m) else {
         return Ok(true);
     };
-    let parts = read(chain, series)?.candidates.parts();
-    let stored = match intent {
+    if holds(&read(chain, series)?, intent) {
+        Ok(false)
+    } else {
+        Err(KeeperError::Chain(format!(
+            "post of {intent:?} failed and the candidate is not on chain: {error}"
+        )))
+    }
+}
+
+/// Whether the series already holds the candidate `intent` was meant to store.
+pub(crate) fn holds(view: &SeriesView, intent: Intent) -> bool {
+    let parts = view.candidates.parts();
+    match intent {
         Intent::Slot(i) => parts.filled_slots.checked_shr(i).unwrap_or(0) & 1 == 1,
         Intent::Link(t) => parts
             .next_times
@@ -211,12 +222,5 @@ fn post<C: Chain>(
             .take(usize::from(parts.next_len))
             .any(|&x| x == t),
         Intent::Fallback(t) => parts.fallback_time >= t,
-    };
-    if stored {
-        Ok(false)
-    } else {
-        Err(KeeperError::Chain(format!(
-            "post of {intent:?} failed and the candidate is not on chain: {error}"
-        )))
     }
 }

@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Batched keeper passes (`Keeper::pass`; the keeper's default, `--no-batch` for the old path).
+  Every series in its window is planned, the candidates are grouped by exact signed print and
+  revalidated with the program's own rule just before sending. Each print is posted once for
+  up to 10 series, the most the post's last transaction carries (`RpcChain::batch_capacity`,
+  measured: 1,213 bytes and 60,380 CU at 10 series). Uncertain posts block only their series'
+  settle for the pass; rejected chunks are resent once without the members that already hold
+  their candidate, then posted one by one. Settles are batched too.
 - `metalbook-keeper --exclude <SERIES>` (repeatable) and `--hermes-interval-s` (default and
   floor 12 s: metalbook's share of the Hermes key is 7 requests a minute across its
   processes).

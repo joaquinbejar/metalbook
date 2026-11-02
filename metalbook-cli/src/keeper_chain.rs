@@ -12,10 +12,27 @@
 
 use std::cell::RefCell;
 
-use metalbook_keeper::{Chain, HermesSource, HttpGet, KeeperError, PrintMsg};
+use metalbook_keeper::{BatchError, Chain, HermesSource, HttpGet, KeeperError, PrintMsg};
 use metalbook_sdk::{ix, Address};
-use pyth_post::{close_if_open, post, AccumulatorUpdate, PostError, Transport};
+use pyth_post::{
+    close_if_open, post, post_plan, AccumulatorUpdate, PostAccounts, PostError, Transport,
+};
+use solana_instruction::Instruction;
 use solana_keypair::Keypair;
+
+use crate::metrics::legacy_tx_size;
+
+/// The legacy transaction size limit, bytes (signatures included).
+pub const MAX_TX_BYTES: u64 = 1_232;
+
+/// The most series one batched post carries, whatever the size allows: `sample_settlement`
+/// costs 2,621 CU (`docs/benchmarks.md`) and the post's last transaction runs under the
+/// default limit of 200,000 CU per instruction, so compute never binds before this.
+pub const MAX_BATCH: usize = 32;
+
+/// Blocks a transaction can still land after its blockhash was fetched (150) plus a margin,
+/// used when the transport cannot tell a failed send's last valid height.
+const BLOCKHASH_LIFETIME_MARGIN: u64 = 300;
 
 /// Where the binary update of a print comes from.
 pub trait UpdateSource {
@@ -72,6 +89,72 @@ pub struct RpcChain<T, U> {
     program_id: Address,
     payer: Keypair,
     pending: Vec<Pending>,
+    /// Last valid block heights of posts whose outcome is unknown: one of their transactions
+    /// may still land. No new post is sent until every one has expired (a payer-wide gate),
+    /// so a candidate is never posted twice while an earlier post of it may still land.
+    in_flight: Vec<Horizon>,
+}
+
+/// The last block height at which a failed post's transaction can still land.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Horizon {
+    /// Known: this block height.
+    At(u64),
+    /// Unknown (no send expiry and no readable block height when it failed): anchored to the
+    /// first block height read afterwards plus a full blockhash lifetime and a margin, so it
+    /// always expires once the RPC answers again.
+    Unknown,
+}
+
+/// One `sample_settlement` per series, all reading `price_update`.
+fn samples(program_id: &Address, series: &[Address], price_update: &Address) -> Vec<Instruction> {
+    series
+        .iter()
+        .map(|s| ix::sample_settlement(program_id, s, price_update))
+        .collect()
+}
+
+/// Serialized size of the last transaction of a post of `update` that samples `n` series
+/// (`post_update`, the samples, `reclaim_rent`, `close_encoded_vaa`), signatures included. Fresh
+/// addresses stand in for the series and the temporary accounts: their values do not change
+/// the size.
+///
+/// # Errors
+///
+/// `KeeperError` if the post cannot be planned.
+pub fn last_post_tx_size(
+    program_id: &Address,
+    payer: &Address,
+    update: &AccumulatorUpdate,
+    merkle: &pyth_post::MerkleUpdate,
+    n: usize,
+) -> Result<u64, KeeperError> {
+    let stand_in = |i: usize| {
+        let mut a = [0xA5_u8; 32];
+        let le = u64::try_from(i).unwrap_or(u64::MAX).to_le_bytes();
+        for (dst, src) in a.iter_mut().zip(le) {
+            *dst = src;
+        }
+        Address::new_from_array(a)
+    };
+    let encoded_vaa = stand_in(usize::MAX);
+    let price_update = stand_in(usize::MAX.saturating_sub(1));
+    let series: Vec<Address> = (0..n).map(stand_in).collect();
+    let steps = post_plan(
+        &PostAccounts {
+            payer,
+            encoded_vaa: &encoded_vaa,
+            price_update: &price_update,
+            encoded_vaa_rent: 0,
+            treasury_id: 0,
+        },
+        update,
+        merkle,
+        samples(program_id, &series, &price_update),
+    )
+    .map_err(|e| chain_error(&e))?;
+    let last = steps.last().ok_or(KeeperError::Update("empty post plan"))?;
+    Ok(legacy_tx_size(&last.instructions, payer))
 }
 
 impl<T: Transport, U: UpdateSource> RpcChain<T, U> {
@@ -86,6 +169,7 @@ impl<T: Transport, U: UpdateSource> RpcChain<T, U> {
             program_id,
             payer,
             pending: Vec::new(),
+            in_flight: Vec::new(),
         }
     }
 
@@ -113,6 +197,73 @@ impl<T: Transport, U: UpdateSource> RpcChain<T, U> {
     #[must_use]
     pub fn orphans(&self) -> Vec<Address> {
         self.pending.iter().map(Pending::address).collect()
+    }
+
+    /// Refuses to post while an earlier post's outcome is unknown: every block height in
+    /// `in_flight` (and every in-flight encoded VAA) must be in the past. An unreadable block
+    /// height refuses too.
+    fn posting_gate(&mut self) -> Result<(), BatchError> {
+        let vaas: Vec<u64> = self
+            .pending
+            .iter()
+            .filter_map(|p| match *p {
+                Pending::InFlight { valid_until, .. } => Some(valid_until),
+                Pending::Open(_) => None,
+            })
+            .collect();
+        if self.in_flight.is_empty() && vaas.is_empty() {
+            return Ok(());
+        }
+        let height = self
+            .transport
+            .borrow()
+            .block_height()
+            .map_err(|e| BatchError::Uncertain(chain_error(&e)))?;
+        // Anchor unknown horizons now that the height is readable.
+        for h in &mut self.in_flight {
+            if *h == Horizon::Unknown {
+                *h = Horizon::At(height.saturating_add(BLOCKHASH_LIFETIME_MARGIN));
+            }
+        }
+        self.in_flight
+            .retain(|h| matches!(h, Horizon::At(v) if height <= *v));
+        let last = self
+            .in_flight
+            .iter()
+            .filter_map(|h| match h {
+                Horizon::At(v) => Some(*v),
+                Horizon::Unknown => None,
+            })
+            .chain(vaas.into_iter().filter(|v| height <= *v))
+            .max();
+        match last {
+            None => Ok(()),
+            Some(last) => Err(BatchError::Uncertain(KeeperError::Chain(format!(
+                "an earlier post may still land until block {last} (now {height}): not posting"
+            )))),
+        }
+    }
+
+    /// The last block height at which a transaction of a failed post can still land: the
+    /// transport's last send expiry, else a full blockhash lifetime and a margin from now, else
+    /// unknown (anchored by the gate once the height is readable).
+    fn failed_post_horizon(&self) -> Horizon {
+        let t = self.transport.borrow();
+        match t.last_send_expiry() {
+            Some(v) => Horizon::At(v),
+            None => t.block_height().map_or(Horizon::Unknown, |h| {
+                Horizon::At(h.saturating_add(BLOCKHASH_LIFETIME_MARGIN))
+            }),
+        }
+    }
+
+    /// Sends `settles` as one transaction.
+    fn send_settles(&mut self, settles: &[Instruction]) -> Result<(), KeeperError> {
+        self.transport
+            .borrow_mut()
+            .send(settles, &self.payer, None)
+            .map(|_| ())
+            .map_err(|e| chain_error(&e))
     }
 
     /// Closes what can be closed: an open orphan with `close_if_open`; an in-flight one once it
@@ -176,12 +327,49 @@ impl<T: Transport, U: UpdateSource> Chain for RpcChain<T, U> {
         feed: &[u8; 32],
         print: &PrintMsg,
     ) -> Result<(), KeeperError> {
-        self.close_orphans();
+        self.post_batch(std::slice::from_ref(series), feed, print)
+            .map_err(|e| match e {
+                BatchError::Uncertain(e) | BatchError::Failed(e) => e,
+            })
+    }
+
+    fn batch_capacity(&self, feed: &[u8; 32], print: &PrintMsg) -> Result<usize, KeeperError> {
         let bytes = self.updates.update(feed, print)?;
         let update = AccumulatorUpdate::parse(&bytes).map_err(|e| chain_error(&e))?;
-        let (merkle, message) = update
+        let (merkle, _) = update
             .find(feed)
             .ok_or(KeeperError::Update("feed not in the update"))?;
+        let payer = self.payer();
+        let size = |n: usize| -> Result<u64, KeeperError> {
+            last_post_tx_size(&self.program_id, &payer, &update, merkle, n)
+        };
+        let mut n = 1;
+        while n < MAX_BATCH && size(n.saturating_add(1))? <= MAX_TX_BYTES {
+            n = n.saturating_add(1);
+        }
+        Ok(n)
+    }
+
+    fn post_batch(
+        &mut self,
+        series: &[Address],
+        feed: &[u8; 32],
+        print: &PrintMsg,
+    ) -> Result<(), BatchError> {
+        self.close_orphans();
+        self.posting_gate()?;
+        let bytes = self
+            .updates
+            .update(feed, print)
+            .map_err(BatchError::Failed)?;
+        let update =
+            AccumulatorUpdate::parse(&bytes).map_err(|e| BatchError::Failed(chain_error(&e)))?;
+        let (merkle, message) =
+            update
+                .find(feed)
+                .ok_or(BatchError::Failed(KeeperError::Update(
+                    "feed not in the update",
+                )))?;
         // Only the print the keeper chose may be posted.
         let signed = PrintMsg {
             price: message.price,
@@ -191,40 +379,72 @@ impl<T: Transport, U: UpdateSource> Chain for RpcChain<T, U> {
             prev_publish_time: message.prev_publish_time,
         };
         if signed != *print {
-            return Err(KeeperError::Update(
+            return Err(BatchError::Failed(KeeperError::Update(
                 "signed message differs from the chosen print",
-            ));
+            )));
         }
         let program_id = self.program_id;
-        let series = *series;
         let sent = post(
             &mut *self.transport.borrow_mut(),
             &self.payer,
             &update,
             merkle,
             0,
-            |price_update| vec![ix::sample_settlement(&program_id, &series, price_update)],
+            |price_update| samples(&program_id, series, price_update),
         );
+        // Any failure after sending began is uncertain: pyth-post re-reads the encoded VAA,
+        // but a later transaction (the samples) whose confirmation was lost can still land
+        // until its blockhash expires, and an RPC error cannot be told from a rejection. Only
+        // planning errors (nothing was sent) are failures.
         match sent {
             Ok(_) => Ok(()),
-            Err(e) => {
-                match &e {
-                    PostError::Orphaned { encoded_vaa, .. } => {
-                        self.pending.push(Pending::Open(*encoded_vaa));
-                    }
-                    PostError::Uncertain {
-                        encoded_vaa,
-                        valid_until,
-                        ..
-                    } => self.pending.push(Pending::InFlight {
+            Err(e) => Err(match &e {
+                PostError::Update(_) => BatchError::Failed(chain_error(&e)),
+                PostError::Uncertain {
+                    encoded_vaa,
+                    valid_until,
+                    ..
+                } => {
+                    self.pending.push(Pending::InFlight {
                         address: *encoded_vaa,
                         valid_until: *valid_until,
-                    }),
-                    _ => {}
+                    });
+                    self.in_flight.push(Horizon::At(*valid_until));
+                    BatchError::Uncertain(chain_error(&e))
                 }
-                Err(chain_error(&e))
+                PostError::Orphaned { encoded_vaa, .. } => {
+                    self.pending.push(Pending::Open(*encoded_vaa));
+                    let horizon = self.failed_post_horizon();
+                    self.in_flight.push(horizon);
+                    BatchError::Uncertain(chain_error(&e))
+                }
+                _ => {
+                    let horizon = self.failed_post_horizon();
+                    self.in_flight.push(horizon);
+                    BatchError::Uncertain(chain_error(&e))
+                }
+            }),
+        }
+    }
+
+    fn settle_batch(&mut self, series: &[Address]) -> Result<(), KeeperError> {
+        let payer = self.payer();
+        let mut chunk: Vec<Instruction> = Vec::new();
+        for s in series {
+            let next = ix::settle(&self.program_id, s);
+            let mut candidate = chunk.clone();
+            candidate.push(next.clone());
+            if !chunk.is_empty() && legacy_tx_size(&candidate, &payer) > MAX_TX_BYTES {
+                self.send_settles(&chunk)?;
+                chunk = vec![next];
+            } else {
+                chunk = candidate;
             }
         }
+        if !chunk.is_empty() {
+            self.send_settles(&chunk)?;
+        }
+        Ok(())
     }
 
     fn settle(&mut self, series: &Address) -> Result<(), KeeperError> {

@@ -208,6 +208,19 @@ and the nightly job runs each for 10 minutes.
 
 ### P1. Bounded keeper batching (M/L)
 
+**Built** (`metalbook-keeper/src/batch.rs`, `Keeper::pass`; `RpcChain::{batch_capacity,
+post_batch, settle_batch}`). Measured in LiteSVM on the real path (Wormhole and the Pyth
+receiver as deployed on devnet, the recorded Hermes XAU update): one post samples **up to 10
+series**. Its last transaction is 1,213 of 1,232 bytes and 60,380 CU at 10 series, against
+871 bytes at 1 series. The capacity is computed per update from the planned transaction
+(`last_post_tx_size`), since the Merkle proof length varies. The estimate above was 9.
+
+Per window, each print is posted `ceil(n / 10)` times per feed instead of `n`:
+- **Oct 30 shape** (16 XAU, 7 XAG): 3 posts per print instead of 23, about 7.7× fewer.
+- **Nov 6 and 13 shape** (16 XAU, 10 XAG): 3 instead of 26, about 8.7× fewer.
+
+The devnet run on Nov 13 measures wall clock and transaction count against the Nov 6 baseline.
+
 Today `Keeper::tick` works one series at a time and `Chain::post` makes one post per series.
 New flow per pass:
 
