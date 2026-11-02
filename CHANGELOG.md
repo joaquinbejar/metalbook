@@ -13,8 +13,8 @@ All notable changes to this project are documented here. The format follows
   processes).
 - `metalbook-admin settle --series` and `close-series --series` (the void drill: `close-series`
   creates the rent payer's USDC account first, as the program requires it).
-- Per-pass keeper metrics: transactions confirmed and failed, serialized bytes, Hermes
-  requests by status (`metalbook_cli::metrics`).
+- Per-pass keeper metrics: transaction attempts (confirmed, failed), attempted serialized
+  bytes and the pass's largest, Hermes requests by status (`metalbook_cli::metrics`).
 
 ### Changed
 

@@ -18,8 +18,9 @@
 //! metalbook's processes together send at most 7 requests a minute. Every request of this
 //! process is paced at `--hermes-interval-s` (default and floor 12 s, 5 a minute).
 //!
-//! After every pass that sent anything, one line reports the pass's transactions (confirmed,
-//! failed, bytes) and Hermes requests by status, for the batching baseline (P3, P1).
+//! After every pass that sent anything, one line reports the pass's transaction attempts
+//! (confirmed, failed, attempted bytes, the pass's largest) and Hermes requests by status, for
+//! the batching baseline (P3, P1).
 
 use std::process::ExitCode;
 use std::time::Duration;
@@ -135,7 +136,6 @@ fn run(args: Args) -> Result<(), CliError> {
     let mut leftovers = LeftoverScanner::new();
     loop {
         let started = std::time::Instant::now();
-        let tx_before = chain.transport().counts();
         let http_before = http.counts();
         // Encoded VAAs this payer left open (a post that failed after verification, or one
         // whose creation landed late): scanned at startup and every ORPHAN_SCAN_PASSES passes,
@@ -201,7 +201,7 @@ fn run(args: Args) -> Result<(), CliError> {
         report_pass(
             pass,
             started.elapsed(),
-            &chain.transport().counts().since(&tx_before),
+            &chain.transport().take(),
             &http.counts().since(&http_before),
         );
         if args.once {
@@ -225,8 +225,9 @@ fn report_pass(pass: u64, took: Duration, tx: &TxCounts, http: &HttpCounts) {
         return;
     }
     println!(
-        "pass {pass}: {:.1} s; tx ok {} failed {} bytes {} max {}; hermes {} (200 {}, 404 {}, 429 {}, other {})",
+        "pass {pass}: {:.1} s; tx attempts {} (ok {}, failed {}), attempted bytes {} max {}; hermes {} (200 {}, 404 {}, 429 {}, other {})",
         took.as_secs_f64(),
+        tx.attempts(),
         tx.ok,
         tx.failed,
         tx.bytes,

@@ -37,29 +37,27 @@ pub fn hermes_interval(seconds: u64) -> Result<Duration, CliError> {
     Ok(Duration::from_secs(seconds))
 }
 
-/// Transactions sent through a [`Metered`] transport.
+/// Send attempts through a [`Metered`] transport since its last [`Metered::take`]. An
+/// attempt is a call to `Transport::send`: a failed one may never have reached the cluster (the
+/// blockhash fetch failed) or may have landed anyway (the confirmation failed), so `bytes`
+/// measures what was attempted, not what went over the wire.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TxCounts {
-    /// Sends that returned a signature (confirmed).
+    /// Attempts that returned a signature (confirmed).
     pub ok: u64,
-    /// Sends that returned an error (rejected, or not confirmed in time).
+    /// Attempts that returned an error.
     pub failed: u64,
-    /// Serialized size of every sent transaction, signatures included, in bytes.
+    /// Serialized size of every attempted transaction, signatures included, in bytes.
     pub bytes: u64,
-    /// The largest serialized transaction, in bytes.
+    /// The largest attempted transaction since the last take, in bytes.
     pub max_bytes: u64,
 }
 
 impl TxCounts {
-    /// `self - earlier`, saturating: the counts of one pass.
+    /// Every attempt.
     #[must_use]
-    pub fn since(&self, earlier: &Self) -> Self {
-        Self {
-            ok: self.ok.saturating_sub(earlier.ok),
-            failed: self.failed.saturating_sub(earlier.failed),
-            bytes: self.bytes.saturating_sub(earlier.bytes),
-            max_bytes: self.max_bytes,
-        }
+    pub fn attempts(&self) -> u64 {
+        self.ok.saturating_add(self.failed)
     }
 }
 
@@ -93,10 +91,16 @@ impl<T> Metered<T> {
         }
     }
 
-    /// The counters since creation.
+    /// The counters since the last take (or creation), without resetting them.
     #[must_use]
     pub fn counts(&self) -> TxCounts {
         self.counts
+    }
+
+    /// The counters since the last take (or creation), resetting them: call it at every pass
+    /// boundary, so each pass's maximum is its own.
+    pub fn take(&mut self) -> TxCounts {
+        std::mem::take(&mut self.counts)
     }
 }
 
@@ -258,6 +262,84 @@ mod tests {
         let signer = Address::new_from_array([4; 32]);
         let ix2 = Instruction::new_with_bytes(program, &[7], vec![AccountMeta::new(signer, true)]);
         assert_eq!(legacy_tx_size(&[ix2], &payer), 203 + 64);
+    }
+
+    /// A transport whose sends succeed, or fail when `fail` is set; nothing else is used.
+    struct Stub {
+        fail: bool,
+    }
+
+    impl Transport for Stub {
+        fn now(&self) -> Result<i64, PostError> {
+            Ok(0)
+        }
+        fn account(&self, _: &Address) -> Result<Option<(Address, Vec<u8>)>, PostError> {
+            Ok(None)
+        }
+        fn block_height(&self) -> Result<u64, PostError> {
+            Ok(0)
+        }
+        fn last_send_expiry(&self) -> Option<u64> {
+            None
+        }
+        fn program_accounts(
+            &self,
+            _: &Address,
+            _: usize,
+            _: &[u8],
+        ) -> Result<Vec<Address>, PostError> {
+            Ok(Vec::new())
+        }
+        fn rent_exempt(&self, _: usize) -> Result<u64, PostError> {
+            Ok(0)
+        }
+        fn send(
+            &mut self,
+            _: &[Instruction],
+            _: &Keypair,
+            _: Option<&Keypair>,
+        ) -> Result<String, PostError> {
+            if self.fail {
+                Err(PostError::Chain("stub".into()))
+            } else {
+                Ok("sig".into())
+            }
+        }
+    }
+
+    #[test]
+    fn test_each_pass_reports_its_own_maximum() {
+        let payer = Keypair::new();
+        let program = Address::new_from_array([2; 32]);
+        let large = Instruction::new_with_bytes(program, &[0; 500], vec![]);
+        let small = Instruction::new_with_bytes(program, &[0; 1], vec![]);
+        let mut m = Metered::new(Stub { fail: false });
+        // Pass 1: one large transaction.
+        m.send(std::slice::from_ref(&large), &payer, None).unwrap();
+        let p1 = m.take();
+        assert_eq!(p1.max_bytes, legacy_tx_size(&[large], &payer.pubkey()));
+        // Pass 2: one small transaction; its maximum is its own, not pass 1's.
+        m.send(std::slice::from_ref(&small), &payer, None).unwrap();
+        let p2 = m.take();
+        let small_size = legacy_tx_size(&[small], &payer.pubkey());
+        assert_eq!(
+            (p2.ok, p2.failed, p2.bytes, p2.max_bytes),
+            (1, 0, small_size, small_size)
+        );
+        assert!(p2.max_bytes < p1.max_bytes);
+        // Pass 3: nothing.
+        assert_eq!(m.take(), TxCounts::default());
+    }
+
+    #[test]
+    fn test_failed_attempts_are_counted_as_attempts() {
+        let payer = Keypair::new();
+        let ix = Instruction::new_with_bytes(Address::new_from_array([2; 32]), &[1], vec![]);
+        let mut m = Metered::new(Stub { fail: true });
+        assert!(m.send(std::slice::from_ref(&ix), &payer, None).is_err());
+        let c = m.take();
+        assert_eq!((c.ok, c.failed, c.attempts()), (0, 1, 1));
+        assert_eq!(c.bytes, legacy_tx_size(&[ix], &payer.pubkey()));
     }
 
     struct Fixed(u16);

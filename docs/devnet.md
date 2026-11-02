@@ -163,8 +163,8 @@ most 7 requests a minute. `--hermes-interval-s` (default and floor 12, so 5 a mi
 every request of this process; a second keeper takes 30 (2 a minute).
 
 After every pass that sent anything, the keeper prints one line with the pass's duration,
-transactions (confirmed, failed, total and largest serialized bytes) and Hermes requests by
-status: the baseline the batching milestone is measured against.
+transaction attempts (confirmed, failed, attempted serialized bytes and the pass's largest) and
+Hermes requests by status: the baseline the batching milestone is measured against.
 
 ### 6. Exercise the lifecycle
 
