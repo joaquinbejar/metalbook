@@ -1,0 +1,17 @@
+Input {
+    xag: false,
+    steps: [
+        Sample {
+            data: Valid {
+                aim: Slot {
+                    slot: 38,
+                    late: 99,
+                    gap: 99,
+                },
+                price_off: -8922,
+            },
+            owner: Receiver,
+            dt: 0,
+        },
+    ],
+}

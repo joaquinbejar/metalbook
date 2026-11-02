@@ -1,0 +1,2067 @@
+Input {
+    terms: TermsIn {
+        slot_s: 234,
+        slots: 51,
+        tolerance: 1,
+        min_samples: 233,
+        k: 234,
+        d: 3073,
+        lookback: 0,
+        hard_extra: 0,
+        expo: 107,
+    },
+    ops: [
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 223,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -39,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -65,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: 61,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 223,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -23,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 17,
+            off: 0,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 223,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -39,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -65,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 217,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 191,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -23,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 241,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -85,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -23,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -23,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 241,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: 58,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 17,
+            off: 0,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 223,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -33,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -15,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 221,
+            off: -35,
+        },
+        Jump {
+            to: 255,
+            off: -17,
+        },
+        Jump {
+            to: 255,
+            off: -23,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 255,
+            off: -1,
+        },
+        Jump {
+            to: 165,
+            off: -22,
+        },
+    ],
+}

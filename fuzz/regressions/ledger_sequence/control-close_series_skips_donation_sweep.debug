@@ -1,0 +1,10 @@
+Input {
+    series: 150,
+    ops: [
+        Donate {
+            amount: 10,
+        },
+    ],
+    end_void: false,
+    end_price_off: 0,
+}

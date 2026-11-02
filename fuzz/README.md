@@ -28,7 +28,12 @@ per signature, charged on failed transactions too.
 (decoded with `arbitrary_take_rest`, as libFuzzer's typed entry does), together with
 hand-built inputs that make each harness take its accepting paths (a full window and a
 settlement through the program, every cascade step, each series lifecycle). A crash input
-found by fuzzing goes there with its fix.
+found by fuzzing goes there with its fix, together with `<name>.debug`, the `{:#?}` rendering
+of what it decodes to (write it with `METALBOOK_FUZZ_BLESS=1 cargo test -p metalbook-tests
+--test fuzz_regressions`). `arbitrary` decodes any byte string into some input, so without the
+rendering a change to the input types would quietly turn a committed crash into a harmless
+input; with it, the replay fails with the file name. Blessing after such a change shows, in
+the diff, what each regression now means: re-minimize the crash if it no longer reproduces.
 
 ## Fault controls
 

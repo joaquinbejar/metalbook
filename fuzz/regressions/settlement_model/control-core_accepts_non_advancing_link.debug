@@ -1,0 +1,27 @@
+Input {
+    terms: TermsIn {
+        slot_s: 28,
+        slots: 21,
+        tolerance: 124,
+        min_samples: 220,
+        k: 63,
+        d: 16191,
+        lookback: 16191,
+        hard_extra: 26431,
+        expo: 0,
+    },
+    ops: [
+        Link {
+            step: 26471,
+            repeat_prev: false,
+            price: 7936,
+            dt: 26112,
+        },
+        Link {
+            step: 0,
+            repeat_prev: false,
+            price: 60007,
+            dt: 0,
+        },
+    ],
+}

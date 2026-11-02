@@ -29,57 +29,137 @@ mod sample_settlement;
 #[path = "../../fuzz/harness/settlement_model.rs"]
 mod settlement_model;
 
+use std::path::{Path, PathBuf};
+
 use arbitrary::{Arbitrary, Unstructured};
 
-/// The committed inputs of `target`, sorted by name.
-fn inputs(target: &str) -> Vec<(String, Vec<u8>)> {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../fuzz/regressions")
-        .join(target);
-    let mut v: Vec<(String, Vec<u8>)> = std::fs::read_dir(&dir)
+/// The committed regressions directory.
+fn committed() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../fuzz/regressions")
+}
+
+/// Decodes like libFuzzer's typed entry point (`arbitrary_take_rest`).
+fn decode<T: for<'a> Arbitrary<'a>>(bytes: &[u8]) -> arbitrary::Result<T> {
+    T::arbitrary_take_rest(Unstructured::new(bytes))
+}
+
+/// The decoded inputs under `root/<target>/`, sorted by name.
+///
+/// `arbitrary` decodes any byte string (even an empty one) into some input, so a change to the
+/// input types would silently turn a committed crash into a different, harmless input. Each
+/// input file `<name>` therefore has a committed `<name>.debug`, the `{:#?}` rendering of what
+/// it decodes to, and a file whose decoding differs, has no rendering, or does not decode fails
+/// here with its name. `METALBOOK_FUZZ_BLESS=1` rewrites the renderings after a deliberate
+/// change to the input types (review the diff: it shows what each regression now means).
+fn regressions<T: for<'a> Arbitrary<'a> + std::fmt::Debug>(
+    root: &Path,
+    target: &str,
+) -> Vec<(String, T)> {
+    let dir = root.join(target);
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
         .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
         .map(|e| e.unwrap().path())
-        .filter(|p| p.is_file())
-        .map(|p| (p.display().to_string(), std::fs::read(&p).unwrap()))
+        .filter(|p| p.is_file() && p.extension().is_none_or(|x| x != "debug"))
         .collect();
-    v.sort();
+    files.sort();
+    let bless = std::env::var_os("METALBOOK_FUZZ_BLESS").is_some();
+    let v: Vec<(String, T)> = files
+        .iter()
+        .map(|path| {
+            let name = path.display().to_string();
+            let input = decode::<T>(&std::fs::read(path).unwrap())
+                .unwrap_or_else(|e| panic!("{name}: does not decode as a {target} input ({e})"));
+            let rendering = format!("{input:#?}\n");
+            let debug = path.with_extension("debug");
+            if bless {
+                std::fs::write(&debug, &rendering).unwrap();
+            }
+            let want = std::fs::read_to_string(&debug).unwrap_or_else(|e| {
+                panic!("{name}: no committed rendering {} ({e})", debug.display())
+            });
+            assert!(
+                want == rendering,
+                "{name}: decodes to another input than its committed rendering; the input types \
+                 changed, so re-minimize the crash or bless after review\n--- committed\n{want}\
+                 --- now\n{rendering}"
+            );
+            (name, input)
+        })
+        .collect();
     assert!(!v.is_empty(), "no committed input for {target}");
     v
 }
 
-/// Decodes like libFuzzer's typed entry point; `None` where the fuzzer skips the input.
-fn decode<T: for<'a> Arbitrary<'a>>(bytes: &[u8]) -> Option<T> {
-    T::arbitrary_take_rest(Unstructured::new(bytes)).ok()
-}
-
 #[test]
 fn settlement_model_regressions() {
-    for (name, bytes) in inputs("settlement_model") {
-        if let Some(i) = decode::<settlement_model::Input>(&bytes) {
-            eprintln!("{name}");
-            settlement_model::run(&i);
-        }
+    let v = regressions::<settlement_model::Input>(&committed(), "settlement_model");
+    for (name, i) in &v {
+        eprintln!("{name}");
+        settlement_model::run(i);
     }
+    eprintln!("settlement_model: {} regressions replayed", v.len());
 }
 
 #[test]
 fn sample_settlement_regressions() {
-    for (name, bytes) in inputs("sample_settlement") {
-        if let Some(i) = decode::<sample_settlement::Input>(&bytes) {
-            eprintln!("{name}");
-            sample_settlement::run(&i);
-        }
+    let v = regressions::<sample_settlement::Input>(&committed(), "sample_settlement");
+    for (name, i) in &v {
+        eprintln!("{name}");
+        sample_settlement::run(i);
     }
+    eprintln!("sample_settlement: {} regressions replayed", v.len());
 }
 
 #[test]
 fn ledger_sequence_regressions() {
-    for (name, bytes) in inputs("ledger_sequence") {
-        if let Some(i) = decode::<ledger_sequence::Input>(&bytes) {
-            eprintln!("{name}");
-            ledger_sequence::run(&i);
-        }
+    let v = regressions::<ledger_sequence::Input>(&committed(), "ledger_sequence");
+    for (name, i) in &v {
+        eprintln!("{name}");
+        ledger_sequence::run(i);
     }
+    eprintln!("ledger_sequence: {} regressions replayed", v.len());
+}
+
+/// Control for `regressions`: a committed input replaced by other bytes (here empty, which
+/// still decodes), an input without its rendering, and an empty directory all fail with the
+/// file name instead of replaying something else or nothing.
+#[test]
+fn regressions_refuse_a_changed_or_unrendered_input() {
+    let root = std::env::temp_dir().join(format!("metalbook-fuzz-control-{}", std::process::id()));
+    let message = |r: std::thread::Result<Vec<(String, settlement_model::Input)>>| -> String {
+        let e = r.expect_err("the control input was accepted");
+        e.downcast_ref::<String>()
+            .cloned()
+            .or_else(|| e.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+            .unwrap_or_default()
+    };
+    let run = || {
+        std::panic::catch_unwind(|| {
+            regressions::<settlement_model::Input>(&root, "settlement_model")
+        })
+    };
+    let dir = root.join("settlement_model");
+    std::fs::create_dir_all(&dir).unwrap();
+    let empty_dir = message(run());
+    // A real regression with its rendering replays; the same name with other bytes does not.
+    let real = committed().join("settlement_model/corpus-07f421b3e86a");
+    std::fs::copy(&real, dir.join("crash")).unwrap();
+    std::fs::copy(real.with_extension("debug"), dir.join("crash.debug")).unwrap();
+    assert_eq!(run().map(|v| v.len()).ok(), Some(1));
+    std::fs::write(dir.join("crash"), []).unwrap();
+    let changed = message(run());
+    std::fs::remove_file(dir.join("crash.debug")).unwrap();
+    let unrendered = message(run());
+    std::fs::remove_dir_all(&root).unwrap();
+    assert!(empty_dir.contains("no committed input"), "{empty_dir}");
+    assert!(
+        changed.contains("crash: decodes to another input"),
+        "{changed}"
+    );
+    assert!(
+        unrendered.contains("crash: no committed rendering"),
+        "{unrendered}"
+    );
 }
 
 #[test]

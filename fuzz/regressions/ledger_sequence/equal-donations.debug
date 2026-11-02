@@ -1,0 +1,13 @@
+Input {
+    series: 87,
+    ops: [
+        Donate {
+            amount: 18256,
+        },
+        Donate {
+            amount: 18256,
+        },
+    ],
+    end_void: false,
+    end_price_off: 0,
+}
