@@ -123,6 +123,29 @@ lint-control:
 doc:
 	RUSTDOCFLAGS="-D warnings" cargo doc $(CARGO_FLAGS) --workspace --no-deps --all-features
 
+# Fuzz every target for FUZZ_SECONDS each on its corpus (fuzz/, cargo-fuzz, nightly;
+# docs/PLAN-improvements.md H5). sample_settlement and ledger_sequence load the program.
+FUZZ_TOOLCHAIN ?= nightly
+FUZZ_SECONDS ?= 120
+FUZZ_TARGETS = settlement_model sample_settlement ledger_sequence
+.PHONY: fuzz
+fuzz: program
+	@for t in $(FUZZ_TARGETS); do \
+		echo "fuzz: $$t for $(FUZZ_SECONDS) s"; \
+		cargo +$(FUZZ_TOOLCHAIN) fuzz run -O $$t -- -max_total_time=$(FUZZ_SECONDS) || exit 1; \
+	done
+
+# Formatting of the fuzz crate (its own workspace, so `fmt-check` does not reach it).
+.PHONY: fuzz-fmt-check
+fuzz-fmt-check:
+	cargo +$(RUST_TOOLCHAIN) fmt --manifest-path fuzz/Cargo.toml -- --check
+
+# Deterministic fault controls: each planted bug in fuzz/controls must crash its target on its
+# committed input, and the input must pass without the bug (fuzz/controls/run.sh).
+.PHONY: fuzz-control
+fuzz-control:
+	@FUZZ_TOOLCHAIN=$(FUZZ_TOOLCHAIN) sh fuzz/controls/run.sh
+
 # Pre-push checks: must pass with zero warnings
 .PHONY: pre-push
 pre-push: fmt-check lint lint-control program-control program quotebook-program pyth-programs test doc

@@ -1,0 +1,13 @@
+diff --git a/metalbook-core/src/settlement.rs b/metalbook-core/src/settlement.rs
+index cc42d86..bd823d2 100644
+--- a/metalbook-core/src/settlement.rs
++++ b/metalbook-core/src/settlement.rs
+@@ -542,7 +542,7 @@ impl SettlementState {
+             // aggregation repeats `prev_publish_time == publish_time` and must not match).
+             Some(last) => {
+                 let last_time = *self.next_times.get(last)?;
+-                print.prev_publish_time == last_time && print.publish_time > last_time
++                print.prev_publish_time == last_time
+             }
+         };
+         if !links {
