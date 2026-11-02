@@ -171,6 +171,39 @@ After every pass that sent anything, the keeper prints one line with the pass's 
 transaction attempts (confirmed, failed, attempted serialized bytes and the pass's largest) and
 Hermes requests by status: the baseline the batching milestone is measured against.
 
+### Heartbeats and alerts
+
+Keepers post heartbeats to the ACS channel `metalbook-keepers` with `--heartbeat --keeper-name
+<primary|secondary>`, through the local `ai-crew-sync` CLI (its profile or `BUS_URL` and
+`BUS_TOKEN`; the keeper never reads the credential). A heartbeat goes out on any state change
+of the live series and otherwise every 10 minutes:
+
+```text
+heartbeat keeper=primary payer=<address> pass=<n> live=<k> settled=<m> errors=<e> tx=<attempts> hermes=<requests>
+```
+
+`metalbook-watch` reads chain state and those heartbeats, never a keeper's memory:
+
+```sh
+metalbook-watch --payer <PRIMARY PAYER> --payer <SECOND PAYER> \
+  --keeper primary --keeper secondary --series <SERIES> ... --exclude <SERIES TO VOID> ...
+```
+
+It announces each new alert to the channel and to the coordinator by DM (`--alert-to`), and
+each resolved one to the channel. The alerts are listed below; each names its runbook.
+
+- A window slot is empty `slot_tolerance_s + 120 s` after its boundary. Oracle availability is
+  unknown: the watcher cannot see a print that was never posted.
+- A series is not settled by `window_end + D + 600 s`.
+- A series is past `hard_deadline + D` and neither settled nor voided.
+- A payer is under 0.5 SOL.
+- A payer has leftover encoded VAAs.
+- A keeper has sent no heartbeat for 30 minutes.
+- The channel cannot be read (liveness unknown, not a false "keeper dead").
+
+Prefer `--series` on public RPCs: they rate-limit `getProgramAccounts`, which discovery uses.
+`--once` prints the alerts and sends nothing.
+
 ### 6. Exercise the lifecycle
 
 Within one expiry:

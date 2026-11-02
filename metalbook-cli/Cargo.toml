@@ -18,6 +18,10 @@ path = "src/bin/keeper.rs"
 # Its name matches the metalbook-keeper library, whose documentation page it would overwrite.
 doc = false
 
+[[bin]]
+name = "metalbook-watch"
+path = "src/bin/watch.rs"
+
 [dependencies]
 metalbook-sdk = { workspace = true }
 metalbook-keeper = { workspace = true }

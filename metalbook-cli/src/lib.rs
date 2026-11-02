@@ -12,6 +12,7 @@ pub mod listing;
 pub mod metrics;
 pub mod params;
 pub mod rpc;
+pub mod watch;
 
 use metalbook_sdk::core::accounts::{Calendar, Config, Series};
 use metalbook_sdk::ix::ConfigParams;

@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `metalbook-watch`, chain-only alerts against the schedule: overdue slots (oracle
+  availability unknown), settle overdue, void pending, low payer balance, leftover encoded
+  VAAs, silent keepers, an unreadable heartbeat channel. Each new alert goes to the ACS
+  channel `metalbook-keepers` and to the coordinator by DM, and each resolved one to the
+  channel. Keeper heartbeats (`--heartbeat --keeper-name`) are posted on state change and
+  otherwise every 10 minutes. `docs/mainnet-readiness.md` lists the pre-mainnet gates, host
+  independence among them.
 - Batched keeper passes (`Keeper::pass`; the keeper's default, `--no-batch` for the old path).
   Every series in its window is planned, the candidates are grouped by exact signed print and
   revalidated with the program's own rule just before sending. Each print is posted once for

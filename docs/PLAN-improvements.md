@@ -289,6 +289,17 @@ New flow per pass:
 
 ### P2. A second independent keeper, with alerts (M)
 
+**Decided** (coordinator, bus 44325). Heartbeats and alerts go to the ACS channel
+`metalbook-keepers`, with alerts also sent to the coordinator by DM. A heartbeat is posted on
+state change and otherwise every 10 minutes. The second keeper runs on the Studio for now, so
+it is process-independent only; host independence is a pre-mainnet gate in
+`docs/mainnet-readiness.md`.
+
+**Built**: `metalbook-cli/src/watch.rs` (pure alert evaluation, heartbeat format, the
+`ai-crew-sync` CLI transport), the binary `metalbook-watch`, and the keeper's `--heartbeat`.
+The optional `watch --hermes` oracle check is not built: without it, overdue slots stay
+`unknown`.
+
 - **Independent** means its own payer (H3), its own RPC endpoint, and its own host or
   launchd agent. Both keepers post the same canonical candidates; races are
   already benign (the intent check in `keeper.rs`), and `PayerLock` keeps each payer to one
