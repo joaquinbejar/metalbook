@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Runbooks (H4): Hermes outage, RPC outage, low payer balance, orphaned encoded VAAs, a
+  stuck settlement (the cascade step by step), program upgrade and rollback, and a compromised
+  key of each role, with an index in `docs/runbooks/README.md`; `docs/audit-scope.md` (files
+  with line counts, trust assumptions, invariants, off-chain scope, known limitations).
+  `show-series` prints a `candidates` block (window slots, next-print links, fallback, their
+  change times, the window end and the hard deadline), and `metalbook-watch` alerts name the
+  matching page (low balance, leftovers, an overdue settle).
 - `docs/keys.md` (H3, part 1): the four roles, the devnet separation steps that run after the
   Nov 6 drill, and the mainnet procedure (Squads v4 multisig with a time lock, hot keeper
   payers, the final step). Tests: after an admin rotation `set_calendar` rejects the old admin,
