@@ -92,7 +92,18 @@ pub struct RpcChain<T, U> {
     /// Last valid block heights of posts whose outcome is unknown: one of their transactions
     /// may still land. No new post is sent until every one has expired (a payer-wide gate),
     /// so a candidate is never posted twice while an earlier post of it may still land.
-    in_flight: Vec<u64>,
+    in_flight: Vec<Horizon>,
+}
+
+/// The last block height at which a failed post's transaction can still land.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Horizon {
+    /// Known: this block height.
+    At(u64),
+    /// Unknown (no send expiry and no readable block height when it failed): anchored to the
+    /// first block height read afterwards plus a full blockhash lifetime and a margin, so it
+    /// always expires once the RPC answers again.
+    Unknown,
 }
 
 /// One `sample_settlement` per series, all reading `price_update`.
@@ -192,12 +203,15 @@ impl<T: Transport, U: UpdateSource> RpcChain<T, U> {
     /// `in_flight` (and every in-flight encoded VAA) must be in the past. An unreadable block
     /// height refuses too.
     fn posting_gate(&mut self) -> Result<(), BatchError> {
-        let mut until: Vec<u64> = self.in_flight.clone();
-        until.extend(self.pending.iter().filter_map(|p| match *p {
-            Pending::InFlight { valid_until, .. } => Some(valid_until),
-            Pending::Open(_) => None,
-        }));
-        if until.is_empty() {
+        let vaas: Vec<u64> = self
+            .pending
+            .iter()
+            .filter_map(|p| match *p {
+                Pending::InFlight { valid_until, .. } => Some(valid_until),
+                Pending::Open(_) => None,
+            })
+            .collect();
+        if self.in_flight.is_empty() && vaas.is_empty() {
             return Ok(());
         }
         let height = self
@@ -205,8 +219,24 @@ impl<T: Transport, U: UpdateSource> RpcChain<T, U> {
             .borrow()
             .block_height()
             .map_err(|e| BatchError::Uncertain(chain_error(&e)))?;
-        self.in_flight.retain(|v| height <= *v);
-        match until.into_iter().filter(|v| height <= *v).max() {
+        // Anchor unknown horizons now that the height is readable.
+        for h in &mut self.in_flight {
+            if *h == Horizon::Unknown {
+                *h = Horizon::At(height.saturating_add(BLOCKHASH_LIFETIME_MARGIN));
+            }
+        }
+        self.in_flight
+            .retain(|h| matches!(h, Horizon::At(v) if height <= *v));
+        let last = self
+            .in_flight
+            .iter()
+            .filter_map(|h| match h {
+                Horizon::At(v) => Some(*v),
+                Horizon::Unknown => None,
+            })
+            .chain(vaas.into_iter().filter(|v| height <= *v))
+            .max();
+        match last {
             None => Ok(()),
             Some(last) => Err(BatchError::Uncertain(KeeperError::Chain(format!(
                 "an earlier post may still land until block {last} (now {height}): not posting"
@@ -215,14 +245,16 @@ impl<T: Transport, U: UpdateSource> RpcChain<T, U> {
     }
 
     /// The last block height at which a transaction of a failed post can still land: the
-    /// transport's last send expiry, or (if it cannot tell) a full blockhash lifetime and a
-    /// margin from now.
-    fn failed_post_horizon(&self) -> u64 {
+    /// transport's last send expiry, else a full blockhash lifetime and a margin from now, else
+    /// unknown (anchored by the gate once the height is readable).
+    fn failed_post_horizon(&self) -> Horizon {
         let t = self.transport.borrow();
-        t.last_send_expiry().unwrap_or_else(|| {
-            t.block_height()
-                .map_or(u64::MAX, |h| h.saturating_add(BLOCKHASH_LIFETIME_MARGIN))
-        })
+        match t.last_send_expiry() {
+            Some(v) => Horizon::At(v),
+            None => t.block_height().map_or(Horizon::Unknown, |h| {
+                Horizon::At(h.saturating_add(BLOCKHASH_LIFETIME_MARGIN))
+            }),
+        }
     }
 
     /// Sends `settles` as one transaction.
@@ -377,7 +409,7 @@ impl<T: Transport, U: UpdateSource> Chain for RpcChain<T, U> {
                         address: *encoded_vaa,
                         valid_until: *valid_until,
                     });
-                    self.in_flight.push(*valid_until);
+                    self.in_flight.push(Horizon::At(*valid_until));
                     BatchError::Uncertain(chain_error(&e))
                 }
                 PostError::Orphaned { encoded_vaa, .. } => {

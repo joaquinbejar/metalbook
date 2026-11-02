@@ -178,7 +178,9 @@ impl Keeper {
 
         // 2. Post each group in chunks.
         let mut posts: u32 = 0;
-        let mut stop: Option<KeeperError> = None;
+        // A source error while planning stops posting altogether: Hermes is failing, and the
+        // series planned before it must not settle on what this pass could post either.
+        let mut stop: Option<KeeperError> = source_down.clone();
         for group in &groups {
             if let Some(e) = &stop {
                 block_all(&mut tracks, &group.members, e);

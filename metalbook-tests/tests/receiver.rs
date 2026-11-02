@@ -921,3 +921,88 @@ fn test_an_uncertain_batched_post_gates_every_post_until_it_lands_or_expires() {
         assert_eq!(encoded_vaas(&chain.transport().svm.env), 0);
     }
 }
+
+/// [`Svm`] during an RPC outage while `down`: sends fail without landing, the block height
+/// cannot be read, and no send expiry is known.
+struct Outage {
+    svm: Svm,
+    down: bool,
+    sends: usize,
+}
+
+impl Transport for Outage {
+    fn now(&self) -> Result<i64, PostError> {
+        self.svm.now()
+    }
+    fn account(&self, account: &Address) -> Result<Option<(Address, Vec<u8>)>, PostError> {
+        self.svm.account(account)
+    }
+    fn block_height(&self) -> Result<u64, PostError> {
+        if self.down {
+            return Err(PostError::Chain("connection refused".into()));
+        }
+        self.svm.block_height()
+    }
+    fn last_send_expiry(&self) -> Option<u64> {
+        None
+    }
+    fn program_accounts(
+        &self,
+        program: &Address,
+        offset: usize,
+        bytes: &[u8],
+    ) -> Result<Vec<Address>, PostError> {
+        self.svm.program_accounts(program, offset, bytes)
+    }
+    fn rent_exempt(&self, len: usize) -> Result<u64, PostError> {
+        self.svm.rent_exempt(len)
+    }
+    fn send(
+        &mut self,
+        instructions: &[Instruction],
+        payer: &Keypair,
+        extra: Option<&Keypair>,
+    ) -> Result<String, PostError> {
+        self.sends += 1;
+        if self.down {
+            return Err(PostError::Chain("connection refused".into()));
+        }
+        let tx = self.svm.signed(instructions, payer, extra);
+        self.svm.deliver(&tx)
+    }
+}
+
+#[test]
+fn test_an_unknown_horizon_from_an_outage_expires_after_recovery() {
+    // Codex R2: a post fails with no send expiry and no readable block height. The gate must
+    // anchor that unknown horizon once the RPC answers, and expire it; never gate forever.
+    let r = recorded();
+    let print = recorded_print(&r);
+    let (mut env, series) = setup(&r);
+    env.set_time(r.publish_time + 3_610);
+    let payer = env.funded();
+    let t = Outage {
+        svm: Svm::new(env),
+        down: true,
+        sends: 0,
+    };
+    let mut chain = chain(t, &r, print, &payer);
+    let e = chain.post_batch(&[series], &FEED_XAU, &print).unwrap_err();
+    assert!(matches!(e, BatchError::Uncertain(_)), "{e:?}");
+    // Still down: the gate cannot read the height and refuses.
+    assert!(chain.post_batch(&[series], &FEED_XAU, &print).is_err());
+    // Recovered: the unknown horizon is anchored to now plus a lifetime, so still gated...
+    chain.transport().down = false;
+    let sends = chain.transport().sends;
+    let e = chain.post_batch(&[series], &FEED_XAU, &print).unwrap_err();
+    assert!(e.to_string().contains("may still land"), "{e}");
+    assert_eq!(chain.transport().sends, sends);
+    // ...and it expires: past it, the post goes through.
+    let slot = chain.transport().svm.env.svm.get_sysvar::<Clock>().slot;
+    chain.transport().svm.env.svm.warp_to_slot(slot + 1_000);
+    chain.post_batch(&[series], &FEED_XAU, &print).unwrap();
+    assert_eq!(
+        fallback_time(&chain.transport().svm.env, &series),
+        r.publish_time
+    );
+}

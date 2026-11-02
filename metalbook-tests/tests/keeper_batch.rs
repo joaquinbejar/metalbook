@@ -715,3 +715,59 @@ fn test_a_source_error_anywhere_in_a_pass_settles_no_subset() {
         .iter()
         .all(|s| view(&chain.env, s).state != SeriesState::Settled));
 }
+
+/// A [`TapeSource`] whose canonical slot queries fail after the first `ok` (Hermes starts
+/// rate limiting part way through planning).
+struct PlanningDownAfter {
+    src: TapeSource,
+    ok: std::cell::Cell<u32>,
+}
+
+impl metalbook_keeper::PriceSource for PlanningDownAfter {
+    fn canonical_at(
+        &self,
+        f: &[u8; 32],
+        t: i64,
+        tol: i64,
+        now: i64,
+    ) -> Result<Option<PrintMsg>, KeeperError> {
+        let left = self.ok.get();
+        if left == 0 {
+            return Err(source_error());
+        }
+        self.ok.set(left - 1);
+        self.src.canonical_at(f, t, tol, now)
+    }
+    fn next_after(&self, f: &[u8; 32], t: i64, now: i64) -> Result<Option<PrintMsg>, KeeperError> {
+        self.src.next_after(f, t, now)
+    }
+    fn latest_at_or_before(
+        &self,
+        f: &[u8; 32],
+        t: i64,
+        earliest: i64,
+        now: i64,
+    ) -> Result<Option<PrintMsg>, KeeperError> {
+        self.src.latest_at_or_before(f, t, earliest, now)
+    }
+}
+
+#[test]
+fn test_a_source_error_after_some_series_planned_posts_and_settles_nothing() {
+    // Codex R2: the first series plans completely (its 30 slot queries succeed), the second
+    // hits the rate limit. Nothing is posted at all, and nothing settles.
+    let (env, series) = listed();
+    let mut chain = Batched::new(env, 8);
+    chain.env.set_time(EXPIRY + 700);
+    let source = PlanningDownAfter {
+        src: TapeSource::new(FEED_XAU, tape()),
+        ok: std::cell::Cell::new(30),
+    };
+    let report = Keeper.pass(&mut chain, &source, &series).unwrap();
+    assert!(report.groups > 0, "the first series planned: {report:?}");
+    assert_eq!(chain.posts, 0, "{report:?}");
+    assert!(report.series.iter().all(|(_, r)| r.is_err()), "{report:?}");
+    assert!(series
+        .iter()
+        .all(|s| view(&chain.env, s).state != SeriesState::Settled));
+}
