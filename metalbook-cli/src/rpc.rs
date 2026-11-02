@@ -77,6 +77,76 @@ impl Cluster {
             .map_err(|e| self.error(&e))
     }
 
+    /// Every account owned by `program` whose data is `data_len` bytes, with its data, in one
+    /// `getProgramAccounts` call (confirmed).
+    ///
+    /// # Errors
+    ///
+    /// [`CliError::Rpc`].
+    pub fn accounts_with_data_of_size(
+        &self,
+        program: &Address,
+        data_len: u64,
+    ) -> Result<Vec<(Address, Vec<u8>)>, CliError> {
+        let config = RpcProgramAccountsConfig {
+            filters: Some(vec![RpcFilterType::DataSize(data_len)]),
+            account_config: RpcAccountInfoConfig {
+                encoding: Some(UiAccountEncoding::Base64),
+                data_slice: None,
+                commitment: Some(CommitmentConfig::confirmed()),
+                min_context_slot: None,
+            },
+            with_context: None,
+            sort_results: None,
+        };
+        let accounts = self
+            .client
+            .get_program_ui_accounts_with_config(program, config)
+            .map_err(|e| self.error(&e))?;
+        Ok(accounts
+            .into_iter()
+            .filter_map(|(address, account)| account.data.decode().map(|d| (address, d)))
+            .collect())
+    }
+
+    /// The data of each of `addresses` that exists, through `getMultipleAccounts` (100 per
+    /// call, confirmed).
+    ///
+    /// # Errors
+    ///
+    /// [`CliError::Rpc`].
+    pub fn accounts_data(
+        &self,
+        addresses: &[Address],
+    ) -> Result<Vec<(Address, Vec<u8>)>, CliError> {
+        let mut out = Vec::new();
+        for chunk in addresses.chunks(100) {
+            let accounts = self
+                .client
+                .get_multiple_accounts_with_commitment(chunk, CommitmentConfig::confirmed())
+                .map_err(|e| self.error(&e))?
+                .value;
+            for (address, account) in chunk.iter().zip(accounts) {
+                if let Some(a) = account {
+                    out.push((*address, a.data));
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The lamports of `address` (`getBalance`, confirmed).
+    ///
+    /// # Errors
+    ///
+    /// [`CliError::Rpc`].
+    pub fn balance(&self, address: &Address) -> Result<u64, CliError> {
+        self.client
+            .get_balance_with_commitment(address, CommitmentConfig::confirmed())
+            .map(|r| r.value)
+            .map_err(|e| self.error(&e))
+    }
+
     fn error(&self, e: &ClientError) -> CliError {
         client_error(e, &self.url)
     }

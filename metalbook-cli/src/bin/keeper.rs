@@ -35,6 +35,7 @@ use metalbook_cli::metrics::{
 };
 use metalbook_cli::params::parse_address;
 use metalbook_cli::rpc::Cluster;
+use metalbook_cli::watch::{heartbeat_body, heartbeat_due, AcsCli, Notify, Target, CHANNEL};
 use metalbook_cli::{read_keypair, CliError};
 use metalbook_keeper::{
     Chain, HermesConfig, HermesSource, Keeper, SeriesView, UreqHttp, SERIES_LEN,
@@ -67,6 +68,16 @@ struct Args {
     /// Never tick these series (for example series left to void on purpose).
     #[arg(long)]
     exclude: Vec<String>,
+    /// Post a heartbeat to the ACS channel `metalbook-keepers` (through the `ai-crew-sync`
+    /// CLI and its local profile) on any state change and otherwise every 10 minutes.
+    #[arg(long)]
+    heartbeat: bool,
+    /// This keeper's name in heartbeats (`primary`, `secondary`).
+    #[arg(long, default_value = "primary")]
+    keeper_name: String,
+    /// The `ai-crew-sync` binary for heartbeats.
+    #[arg(long, default_value = "ai-crew-sync")]
+    acs: String,
     /// Tick each series on its own (one post per series and candidate), as before batching.
     #[arg(long)]
     no_batch: bool,
@@ -139,9 +150,15 @@ fn run(args: Args) -> Result<(), CliError> {
         u64::try_from(SERIES_LEN).map_err(|_| CliError::Usage("series size".into()))?;
     let mut pass: u64 = 0;
     let mut resume: Option<Address> = None;
+    let acs = AcsCli {
+        program: args.acs.clone(),
+        session: format!("metalbook-keeper-{}", args.keeper_name),
+    };
+    let mut last_heartbeat: Option<(i64, u64)> = None;
     let mut leftovers = LeftoverScanner::new();
     loop {
         let started = std::time::Instant::now();
+        let mut errors: u32 = 0;
         let http_before = http.counts();
         // Encoded VAAs this payer left open (a post that failed after verification, or one
         // whose creation landed late): scanned at startup and every ORPHAN_SCAN_PASSES passes,
@@ -193,6 +210,7 @@ fn run(args: Args) -> Result<(), CliError> {
                     Ok(r) => print_tick(series, &r),
                     Err(e) => {
                         eprintln!("{series}: {e}");
+                        errors = errors.saturating_add(1);
                         if is_rate_limit(&e.to_string()) {
                             // Every later request of this pass would fail too: stop here and
                             // start the next pass with this series.
@@ -210,6 +228,7 @@ fn run(args: Args) -> Result<(), CliError> {
                             Ok(r) => print_tick(series, r),
                             Err(e) => {
                                 eprintln!("{series}: {e}");
+                                errors = errors.saturating_add(1);
                                 if resume.is_none() && is_rate_limit(&e.to_string()) {
                                     resume = Some(*series);
                                 }
@@ -228,12 +247,42 @@ fn run(args: Args) -> Result<(), CliError> {
                 Err(e) => eprintln!("pass {pass}: {e}"),
             }
         }
-        report_pass(
-            pass,
-            started.elapsed(),
-            &chain.transport().take(),
-            &http.counts().since(&http_before),
-        );
+        let tx = chain.transport().take();
+        let http_pass = http.counts().since(&http_before);
+        report_pass(pass, started.elapsed(), &tx, &http_pass);
+        if args.heartbeat {
+            // State digest: every live series' account bytes. A change (a new candidate, a
+            // settle) posts a heartbeat at once; otherwise every HEARTBEAT_PERIOD_S.
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            let mut settled = 0_u32;
+            for series in &live {
+                if let Ok(Some(data)) = chain.account_data(series) {
+                    std::hash::Hash::hash(&data, &mut hasher);
+                    if SeriesView::decode(&data).is_ok_and(|v| {
+                        matches!(v.state, SeriesState::Settled | SeriesState::Voided)
+                    }) {
+                        settled = settled.saturating_add(1);
+                    }
+                }
+            }
+            let digest = std::hash::Hasher::finish(&hasher);
+            let now_s = chain.now().unwrap_or(0);
+            if heartbeat_due(last_heartbeat, digest, now_s) {
+                let body = heartbeat_body(
+                    &args.keeper_name,
+                    &format!(
+                        "payer={payer_address} pass={pass} live={} settled={settled} errors={errors} tx={} hermes={}",
+                        live.len(),
+                        tx.attempts(),
+                        http_pass.total()
+                    ),
+                );
+                match acs.send(&Target::Channel(CHANNEL.into()), &body) {
+                    Ok(()) => last_heartbeat = Some((now_s, digest)),
+                    Err(e) => eprintln!("heartbeat not sent: {e}"),
+                }
+            }
+        }
         if args.once {
             return Ok(());
         }
