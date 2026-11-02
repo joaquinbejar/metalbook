@@ -176,15 +176,32 @@ fn run(args: Args) -> Result<(), CliError> {
             chain.close_orphans();
         }
         pass = pass.wrapping_add(1);
-        let mut all: Vec<Address> = if fixed.is_empty() {
-            cluster.accounts_of_size(&program_id, series_len)?
+        // The series list and the clock: an RPC error here (a rate-limited getProgramAccounts,
+        // a timeout) skips this pass and retries at the next one instead of ending the
+        // process, which would leave every window unattended. `--once` reports it and exits.
+        let listed = if fixed.is_empty() {
+            cluster.accounts_of_size(&program_id, series_len)
         } else {
-            fixed.clone()
+            Ok(fixed.clone())
+        };
+        let read = listed.and_then(|all| {
+            let now = chain.now().map_err(|e| CliError::Rpc(e.to_string()))?;
+            Ok((all, now))
+        });
+        let (mut all, now) = match read {
+            Ok(read) => read,
+            Err(e) => {
+                eprintln!("pass {pass}: skipped, the chain could not be read: {e}");
+                if args.once {
+                    return Err(e);
+                }
+                std::thread::sleep(Duration::from_secs(args.interval_s));
+                continue;
+            }
         };
         all.retain(|s| !excluded.contains(s));
         // Resume where the last rate-limited pass stopped.
         resume_at(&mut all, resume.take());
-        let now = chain.now().map_err(|e| CliError::Rpc(e.to_string()))?;
         // The series in their averaging window (or past it) and not settled.
         let mut live = Vec::new();
         for series in &all {
