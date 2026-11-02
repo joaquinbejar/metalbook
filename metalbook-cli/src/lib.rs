@@ -469,5 +469,22 @@ pub fn series_json(address: &Address, s: &Series) -> Value {
         "payout_atoms": s.payout,
         "residual_atoms": s.residual,
         "vault_owed_atoms": s.vault_owed,
+        "settle_method": settle_method_name(s.settle_method),
+        "settlement_price_usd": format_usd(s.settlement_price),
+        "settlement_samples": s.settlement_samples,
     })
+}
+
+/// The settlement cascade step stored by `settle` (`docs/PLAN.md` 4.3), or `none` before it.
+fn settle_method_name(method: u8) -> &'static str {
+    match method {
+        0 => "window",
+        1 => "next_print",
+        2 => "partial_next_print",
+        3 => "partial_window",
+        4 => "fallback",
+        5 => "void",
+        metalbook_sdk::core::accounts::SETTLE_METHOD_NONE => "none",
+        _ => "unknown",
+    }
 }
