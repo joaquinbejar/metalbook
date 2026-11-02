@@ -73,7 +73,7 @@ Start again with the same flags (above) and record the new PID. Then check, in t
    unchanged, so `closing N orphaned encoded VAA(s)` may appear about 10 minutes after the
    restart. Until then it costs rent only (about 0.003 SOL each).
 4. **Settlement**: after the window, each series settles; if a restart took longer than `D`
-   during the window, check its settlement method in `show-series` and record it.
+   during the window, check its `settle_method` (and `settlement_samples`) in `show-series` and record it: anything other than `window` with 30 samples means the gap cost slots.
 
 ## Failure modes
 

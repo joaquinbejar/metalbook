@@ -259,6 +259,9 @@ fn the_admin_cli_redeems_and_claims_after_settlement() {
     );
     assert_eq!(shown["state"], "settled");
     assert_eq!(shown["vault_owed_atoms"], 0);
+    assert_eq!(shown["settle_method"], "window");
+    assert_eq!(shown["settlement_price_usd"], "3600");
+    assert_eq!(shown["settlement_samples"], 30);
 }
 
 #[test]

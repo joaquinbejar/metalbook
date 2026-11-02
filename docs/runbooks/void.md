@@ -44,13 +44,14 @@ alias metalbook-admin='cargo run -q --release -p metalbook-cli --bin metalbook-a
 
    Expect `confirmed <SIGNATURE>`. Custom error 141 means it is too early (or a candidate is
    still inside its challenge delay); 116 (`SeriesAlreadySettled`) means someone settled it
-   first. Then `show-series` prints `"state": "voided"`.
+   first. Then `show-series` prints `"state": "voided"` and `"settle_method": "void"`.
 
 3. **Holders and writers** (only if `open > 0`):
    - each holder: `metalbook-admin --keypair <HOLDER.json> redeem --series <SERIES>
      --contracts <N>` burns the long tokens for zero;
    - each writer: `metalbook-admin --keypair <WRITER.json> claim-writer --series <SERIES>`
-     returns the whole collateral (`open × max_payout`).
+     returns that writer's whole collateral (its own written contracts × the maximum payout
+     per contract).
 
    Claims never expire (`docs/PLAN.md` 4.6); nobody can take them on the holders' or
    writers' behalf.
