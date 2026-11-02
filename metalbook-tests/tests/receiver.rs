@@ -151,6 +151,8 @@ fn setup(r: &Recorded) -> (Env, Address) {
 struct Svm {
     env: Env,
     last_expiry: Option<u64>,
+    /// Compute units of the last delivered transaction.
+    last_cu: u64,
     /// Expire the blockhash before each send (identical transactions would collide); off when
     /// held transactions must stay valid.
     fresh_blockhash: bool,
@@ -161,6 +163,7 @@ impl Svm {
         Self {
             env,
             last_expiry: None,
+            last_cu: 0,
             fresh_blockhash: true,
         }
     }
@@ -187,11 +190,13 @@ impl Svm {
     }
 
     fn deliver(&mut self, tx: &Transaction) -> Result<String, PostError> {
-        self.env
+        let sent = self
+            .env
             .svm
             .send_transaction(tx.clone())
-            .map(|_| tx.signatures[0].to_string())
-            .map_err(|e| PostError::Chain(format!("{:?} {:?}", e.err, e.meta.logs)))
+            .map_err(|e| PostError::Chain(format!("{:?} {:?}", e.err, e.meta.logs)))?;
+        self.last_cu = sent.compute_units_consumed;
+        Ok(tx.signatures[0].to_string())
     }
 }
 
@@ -524,6 +529,77 @@ fn test_a_metered_post_counts_its_three_transactions() {
     assert_eq!((counts.ok, counts.failed), (3, 0), "{counts:?}");
     assert!(counts.max_bytes <= 1_232, "{counts:?}");
     assert!(counts.bytes > counts.max_bytes, "{counts:?}");
+}
+
+#[test]
+fn test_batch_capacity_is_the_largest_real_post_that_fits_and_it_samples_every_series() {
+    // P1 measurement on the real path: Wormhole and the Pyth receiver as deployed on devnet,
+    // the recorded Hermes update, and as many XAU series as one post can sample (all accept
+    // the print as their fallback candidate).
+    let r = recorded();
+    let print = recorded_print(&r);
+    let (mut env, first) = setup(&r);
+    let expiry = r.publish_time + 3_600;
+    let mut series = vec![first];
+    // Listed before `min_listing_s`, like the first one.
+    env.set_time(r.publish_time - 7_200);
+    for k in 1..=40 {
+        series.push(env.create_series(SeriesArgs {
+            expiry,
+            ..SeriesArgs::xau_put(4_000 + 5 * k)
+        }));
+    }
+    env.set_time(r.publish_time + 3_610);
+    let payer = env.funded();
+    let mut chain = chain(
+        metalbook_cli::metrics::Metered::new(Svm::new(env)),
+        &r,
+        print,
+        &payer,
+    );
+    let capacity = chain.batch_capacity(&FEED_XAU, &print).unwrap();
+    // The planned size of the last transaction at the capacity fits; one more does not
+    // (unless the cap on series per post binds first).
+    let update = AccumulatorUpdate::parse(&r.update).unwrap();
+    let (merkle, _) = update.find(&FEED_XAU).unwrap();
+    let size = |n| {
+        metalbook_cli::keeper_chain::last_post_tx_size(
+            &PROGRAM_ID,
+            &payer.pubkey(),
+            &update,
+            merkle,
+            n,
+        )
+        .unwrap()
+    };
+    assert!(size(capacity) <= metalbook_cli::keeper_chain::MAX_TX_BYTES);
+    assert!(
+        capacity == metalbook_cli::keeper_chain::MAX_BATCH
+            || size(capacity + 1) > metalbook_cli::keeper_chain::MAX_TX_BYTES
+    );
+    let one = size(1);
+    // A real batched post at the capacity: three transactions, the last one as planned.
+    chain
+        .post_batch(&series[..capacity], &FEED_XAU, &print)
+        .unwrap();
+    let counts = chain.transport().take();
+    assert_eq!((counts.ok, counts.failed), (3, 0), "{counts:?}");
+    assert_eq!(counts.max_bytes, size(capacity).max(counts.max_bytes));
+    let transport = chain.transport();
+    let cu = transport.inner().last_cu;
+    let env = &transport.inner().env;
+    for s in &series[..capacity] {
+        assert_eq!(fallback_time(env, s), r.publish_time);
+    }
+    for s in &series[capacity..] {
+        assert_eq!(fallback_time(env, s), 0);
+    }
+    eprintln!(
+        "P1 measurement: one post samples up to {capacity} series; last transaction {} bytes \
+         and {cu} CU at {capacity} series ({one} bytes at 1)",
+        size(capacity)
+    );
+    assert!(cu < 200_000 * (capacity as u64 + 3));
 }
 
 #[test]

@@ -91,6 +91,12 @@ impl<T> Metered<T> {
         }
     }
 
+    /// The wrapped transport.
+    #[must_use]
+    pub fn inner(&self) -> &T {
+        &self.inner
+    }
+
     /// The counters since the last take (or creation), without resetting them.
     #[must_use]
     pub fn counts(&self) -> TxCounts {

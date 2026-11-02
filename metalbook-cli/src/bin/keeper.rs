@@ -11,8 +11,11 @@
 //! could take this one's in-flight encoded VAAs for leftovers and close them (seen on devnet,
 //! 2026-10-30). Orphans are found with `pyth_post::LeftoverScanner`, which only reports an
 //! encoded VAA that consecutive scans have seen unchanged for `LEFTOVER_MIN_AGE` blocks.
-//! When Hermes rate limits a pass, the next pass resumes at the series where it stopped, so
-//! every series progresses under a recurring limit.
+//! By default each pass is batched (`Keeper::pass`, `docs/PLAN-improvements.md` P1): every
+//! series in its window is planned, the intents are grouped by signed print, and each print
+//! is posted once for as many series as one transaction carries. `--no-batch` ticks each
+//! series on its own, as before. When Hermes rate limits a pass, the next pass resumes at the
+//! first series it could not plan, so every series progresses under a recurring limit.
 //!
 //! Hermes budget (`docs/PLAN-improvements.md`, P2): the key is shared with varswap, and
 //! metalbook's processes together send at most 7 requests a minute. Every request of this
@@ -64,6 +67,9 @@ struct Args {
     /// Never tick these series (for example series left to void on purpose).
     #[arg(long)]
     exclude: Vec<String>,
+    /// Tick each series on its own (one post per series and candidate), as before batching.
+    #[arg(long)]
+    no_batch: bool,
     /// Seconds between two Hermes requests of this process; at least 12. The sum over every
     /// metalbook process sharing the key must stay at or under 7 requests a minute.
     #[arg(long, default_value_t = MIN_HERMES_INTERVAL_S)]
@@ -162,6 +168,8 @@ fn run(args: Args) -> Result<(), CliError> {
         // Resume where the last rate-limited pass stopped.
         resume_at(&mut all, resume.take());
         let now = chain.now().map_err(|e| CliError::Rpc(e.to_string()))?;
+        // The series in their averaging window (or past it) and not settled.
+        let mut live = Vec::new();
         for series in &all {
             let Ok(Some(data)) = chain.account_data(series) else {
                 continue;
@@ -175,27 +183,49 @@ fn run(args: Args) -> Result<(), CliError> {
             let window_start = view
                 .expiry
                 .saturating_sub(i64::from(view.params.window_s()));
-            if now < window_start {
-                continue;
+            if now >= window_start {
+                live.push(*series);
             }
-            match keeper.tick(&mut chain, &source, series) {
-                Ok(r) => {
-                    if r.slots > 0 || r.links > 0 || r.fallback || r.settled || r.skipped > 0 {
+        }
+        if args.no_batch {
+            for series in &live {
+                match keeper.tick(&mut chain, &source, series) {
+                    Ok(r) => print_tick(series, &r),
+                    Err(e) => {
+                        eprintln!("{series}: {e}");
+                        if is_rate_limit(&e.to_string()) {
+                            // Every later request of this pass would fail too: stop here and
+                            // start the next pass with this series.
+                            resume = Some(*series);
+                            break;
+                        }
+                    }
+                }
+            }
+        } else if !live.is_empty() {
+            match keeper.pass(&mut chain, &source, &live) {
+                Ok(report) => {
+                    for (series, outcome) in &report.series {
+                        match outcome {
+                            Ok(r) => print_tick(series, r),
+                            Err(e) => {
+                                eprintln!("{series}: {e}");
+                                if resume.is_none() && is_rate_limit(&e.to_string()) {
+                                    resume = Some(*series);
+                                }
+                            }
+                        }
+                    }
+                    if report.posts > 0 {
                         println!(
-                            "{series}: slots +{} links +{} fallback {} skipped {} settled {}",
-                            r.slots, r.links, r.fallback, r.skipped, r.settled
+                            "pass {pass}: {} prints, {} posts for {} series",
+                            report.groups,
+                            report.posts,
+                            live.len()
                         );
                     }
                 }
-                Err(e) => {
-                    eprintln!("{series}: {e}");
-                    if is_rate_limit(&e.to_string()) {
-                        // Every later request of this pass would fail too: stop here and
-                        // start the next pass with this series.
-                        resume = Some(*series);
-                        break;
-                    }
-                }
+                Err(e) => eprintln!("pass {pass}: {e}"),
             }
         }
         report_pass(
@@ -208,6 +238,16 @@ fn run(args: Args) -> Result<(), CliError> {
             return Ok(());
         }
         std::thread::sleep(Duration::from_secs(args.interval_s));
+    }
+}
+
+/// One line for a series that did anything.
+fn print_tick(series: &Address, r: &metalbook_keeper::TickReport) {
+    if r.slots > 0 || r.links > 0 || r.fallback || r.settled || r.skipped > 0 {
+        println!(
+            "{series}: slots +{} links +{} fallback {} skipped {} settled {}",
+            r.slots, r.links, r.fallback, r.skipped, r.settled
+        );
     }
 }
 

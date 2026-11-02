@@ -22,6 +22,7 @@
 //! The Hermes API key is read only from the environment ([`HermesConfig::from_env`]), never
 //! from a file, and never printed.
 
+mod batch;
 mod chain;
 mod error;
 mod hermes;
@@ -29,6 +30,7 @@ mod keeper;
 mod layout;
 mod source;
 
+pub use batch::{BatchError, PassReport};
 pub use chain::Chain;
 pub use error::KeeperError;
 pub use hermes::{
