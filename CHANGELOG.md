@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- cargo-fuzz targets `settlement_model`, `sample_settlement` and `ledger_sequence` (`fuzz/`,
+  its own workspace, nightly), with an independent settlement and payoff model and a
+  `PriceUpdateV2` decoder as acceptance oracle; committed regressions replayed on stable by
+  `metalbook-tests/tests/fuzz_regressions.rs`; deterministic fault controls
+  (`make fuzz-control`); a nightly fuzz workflow. `arbitrary` 1.5 is a new dev-dependency of
+  metalbook-tests.
 - `metalbook-watch`, chain-only alerts against the schedule: overdue slots (oracle
   availability unknown), settle overdue, void pending, low payer balance, leftover encoded
   VAAs, silent keepers, an unreadable heartbeat channel. Each new alert goes to the ACS

@@ -156,6 +156,14 @@ There are four roles, held today by one key: the upgrade authority, the `Config`
 
 ### H5. Fuzzing: `sample_settlement`, conservation and rollback (M)
 
+(Done.) As built: `fuzz/` (its own workspace) with `settlement_model`, `sample_settlement` and
+`ledger_sequence`; the harness in `fuzz/harness/`, replayed on stable with the committed
+regressions by `metalbook-tests/tests/fuzz_regressions.rs`; three fault controls
+(`make fuzz-control`); `.github/workflows/fuzz.yml` nightly. One hour per target ran without a
+finding in the program: 46,059, 290 and 37 executions per second (`fuzz/README.md`). The only
+crash was a harness bug (two equal donations sent as one transaction twice), fixed and kept as
+a regression.
+
 Pattern: a `fuzz/` crate outside the workspace, as tessera-rl did. It uses `cargo-fuzz` 0.13,
 `libfuzzer-sys` 0.4 and `arbitrary` 1.5 (all checked 2026-11-02), a nightly-only workflow,
 and every crash input saved as a regression replayed by a stable `cargo test`, so CI (H1)
