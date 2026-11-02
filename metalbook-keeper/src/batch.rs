@@ -83,6 +83,9 @@ struct Track {
     blocked: Option<KeeperError>,
     /// Post nothing more for this series this pass (it could not be read or planned).
     halted: bool,
+    /// Planned samples not yet resolved (posted, or found stored). A series settles only when
+    /// this is zero: whatever path left a candidate unposted, it cannot settle a subset.
+    unresolved: u32,
 }
 
 impl Keeper {
@@ -134,6 +137,7 @@ impl Keeper {
                 Ok((wants, skipped)) => {
                     track.report.skipped = skipped;
                     for (intent, print) in wants {
+                        track.unresolved = track.unresolved.saturating_add(1);
                         let want = Want {
                             series: s,
                             intent,
@@ -144,7 +148,11 @@ impl Keeper {
                             .find(|g| g.feed == view.feed_id && g.print == print)
                         {
                             Some(g) => match g.members.iter_mut().find(|w| w.series == s) {
-                                Some(w) => w.also = Some(intent),
+                                Some(w) => {
+                                    // Same print, same sample: one unresolved, not two.
+                                    w.also = Some(intent);
+                                    track.unresolved = track.unresolved.saturating_sub(1);
+                                }
                                 None => g.members.push(want),
                             },
                             None => groups.push(Group {
@@ -186,7 +194,9 @@ impl Keeper {
                 }
                 match read(chain, &want.series) {
                     Ok(view) if accepts(&view, &group.print, now) => live.push(*want),
-                    Ok(view) if holds(&view, want.intent) => {}
+                    Ok(view) if holds(&view, want.intent) => {
+                        track.unresolved = track.unresolved.saturating_sub(1);
+                    }
                     Ok(_) => {
                         // Neither accepted nor held: the series moved on (settled) or an
                         // earlier candidate it needs is missing. Do not settle on a guess.
@@ -205,10 +215,19 @@ impl Keeper {
                 Ok(n) => n.max(1),
                 Err(e) => {
                     block_all(&mut tracks, &live, &e);
+                    if matches!(e, KeeperError::Source(_)) {
+                        stop = Some(e);
+                    }
                     continue;
                 }
             };
             for chunk in live.chunks(capacity) {
+                // After a source error, nothing more is sent: every unattempted member is
+                // blocked (its candidate is missing).
+                if let Some(e) = &stop {
+                    block_all(&mut tracks, chunk, e);
+                    continue;
+                }
                 let addresses: Vec<C::Address> = chunk.iter().map(|w| w.series).collect();
                 posts = posts.saturating_add(1);
                 match chain.post_batch(&addresses, &group.feed, &group.print) {
@@ -217,17 +236,14 @@ impl Keeper {
                     Err(BatchError::Failed(e)) if matches!(e, KeeperError::Source(_)) => {
                         block_all(&mut tracks, chunk, &e);
                         stop = Some(e);
-                        break;
                     }
                     Err(BatchError::Failed(_)) => {
-                        posts = posts.saturating_add(recover(
-                            chain,
-                            &mut tracks,
-                            chunk,
-                            &group.feed,
-                            &group.print,
-                            now,
-                        ));
+                        let (made, source) =
+                            recover(chain, &mut tracks, chunk, &group.feed, &group.print, now);
+                        posts = posts.saturating_add(made);
+                        if source.is_some() {
+                            stop = source;
+                        }
                     }
                 }
             }
@@ -238,6 +254,12 @@ impl Keeper {
         let mut due = Vec::new();
         for &s in series {
             let track = tracks.entry(s).or_default();
+            if track.blocked.is_none() && track.unresolved > 0 {
+                track.blocked = Some(KeeperError::Chain(format!(
+                    "{} planned candidate(s) not posted this pass",
+                    track.unresolved
+                )));
+            }
             if track.blocked.is_some() || track.report.done {
                 continue;
             }
@@ -408,7 +430,9 @@ fn accepts(view: &SeriesView, m: &PrintMsg, now: i64) -> bool {
 /// Counts each member's posted candidate.
 fn credit<A: Copy + Eq + std::hash::Hash>(tracks: &mut HashMap<A, Track>, chunk: &[Want<A>]) {
     for want in chunk {
-        let r = &mut tracks.entry(want.series).or_default().report;
+        let track = tracks.entry(want.series).or_default();
+        track.unresolved = track.unresolved.saturating_sub(1);
+        let r = &mut track.report;
         for intent in std::iter::once(want.intent).chain(want.also) {
             match intent {
                 Intent::Slot(_) => r.slots = r.slots.saturating_add(1),
@@ -434,7 +458,8 @@ fn block_all<A: Copy + Eq + std::hash::Hash>(
 }
 
 /// After a confirmed rejection: drop the members that now hold their candidate, resend the
-/// rest once, then post them one by one. Returns the posts it made.
+/// rest once, then post them one by one. Returns the posts it made, and the source error that
+/// stopped it, if any (the caller then stops posting).
 fn recover<C>(
     chain: &mut C,
     tracks: &mut HashMap<C::Address, Track>,
@@ -442,7 +467,7 @@ fn recover<C>(
     feed: &[u8; 32],
     print: &PrintMsg,
     now: i64,
-) -> u32
+) -> (u32, Option<KeeperError>)
 where
     C: Chain,
     C::Address: Eq + std::hash::Hash,
@@ -450,37 +475,51 @@ where
     let mut posts: u32 = 0;
     let mut rest = Vec::new();
     for want in chunk {
+        let track = tracks.entry(want.series).or_default();
         match read(chain, &want.series) {
             // Another keeper (or a landing whose confirmation failed) stored it.
-            Ok(view) if holds(&view, want.intent) => {}
+            Ok(view) if holds(&view, want.intent) => {
+                track.unresolved = track.unresolved.saturating_sub(1);
+            }
             Ok(view) if accepts(&view, print, now) => rest.push(*want),
             Ok(_) => {
-                tracks.entry(want.series).or_default().blocked = Some(KeeperError::Chain(format!(
+                track.blocked = Some(KeeperError::Chain(format!(
                     "{:?} rejected and not stored",
                     want.intent
                 )));
             }
-            Err(e) => tracks.entry(want.series).or_default().blocked = Some(e),
+            Err(e) => track.blocked = Some(e),
         }
     }
     if rest.is_empty() {
-        return posts;
+        return (posts, None);
     }
     let addresses: Vec<C::Address> = rest.iter().map(|w| w.series).collect();
     posts = posts.saturating_add(1);
     match chain.post_batch(&addresses, feed, print) {
         Ok(()) => credit(tracks, &rest),
         Err(BatchError::Uncertain(e)) => block_all(tracks, &rest, &e),
+        Err(BatchError::Failed(e)) if matches!(e, KeeperError::Source(_)) => {
+            block_all(tracks, &rest, &e);
+            return (posts, Some(e));
+        }
         Err(BatchError::Failed(_)) => {
-            for want in &rest {
+            for (i, want) in rest.iter().enumerate() {
                 posts = posts.saturating_add(1);
                 match post(chain, &want.series, feed, print, want.intent) {
                     Ok(true) => credit(tracks, std::slice::from_ref(want)),
-                    Ok(false) => {}
+                    Ok(false) => {
+                        let track = tracks.entry(want.series).or_default();
+                        track.unresolved = track.unresolved.saturating_sub(1);
+                    }
+                    Err(e) if matches!(e, KeeperError::Source(_)) => {
+                        block_all(tracks, rest.get(i..).unwrap_or_default(), &e);
+                        return (posts, Some(e));
+                    }
                     Err(e) => tracks.entry(want.series).or_default().blocked = Some(e),
                 }
             }
         }
     }
-    posts
+    (posts, None)
 }

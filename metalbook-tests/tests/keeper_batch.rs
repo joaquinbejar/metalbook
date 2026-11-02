@@ -317,11 +317,13 @@ fn test_a_member_filled_between_revalidation_and_send_is_resent_without() {
 }
 
 /// Reports its first batched post as uncertain: the post lands (`lands`) or not, but the keeper
-/// is told its outcome is unknown.
+/// is told its outcome is unknown. Like `RpcChain`, it then refuses every post until the
+/// uncertain one has `expired` (the payer-wide gate).
 struct Uncertain {
     inner: Batched,
     lands: bool,
     fired: bool,
+    expired: bool,
 }
 
 impl Chain for Uncertain {
@@ -351,6 +353,11 @@ impl Chain for Uncertain {
                 "confirmation lost".into(),
             )));
         }
+        if !self.expired {
+            return Err(BatchError::Uncertain(KeeperError::Chain(
+                "an earlier post may still land".into(),
+            )));
+        }
         self.inner.post_batch(s, f, m)
     }
     fn settle_batch(&mut self, s: &[Address]) -> Result<(), KeeperError> {
@@ -360,6 +367,7 @@ impl Chain for Uncertain {
 
 #[test]
 fn test_an_uncertain_post_blocks_settle_and_is_never_posted_twice() {
+    let mut prints_after = Vec::new();
     for lands in [true, false] {
         let src = TapeSource::new(FEED_XAU, tape());
         let (env, series) = listed();
@@ -367,6 +375,7 @@ fn test_an_uncertain_post_blocks_settle_and_is_never_posted_twice() {
             inner: Batched::new(env, 8),
             lands,
             fired: false,
+            expired: false,
         };
         // Past expiry + D, so the window could settle at once if complete.
         chain.inner.env.set_time(EXPIRY + 700);
@@ -377,22 +386,32 @@ fn test_an_uncertain_post_blocks_settle_and_is_never_posted_twice() {
         for s in &series {
             assert_ne!(view(&chain.inner.env, s).state, SeriesState::Settled);
         }
+        // Before the uncertain post expires, a second pass posts nothing at all (the gate) and
+        // settles nothing.
         let posts_before = chain.inner.posts;
-        let second = Keeper.pass(&mut chain, &src, &series).unwrap();
+        let gated = Keeper.pass(&mut chain, &src, &series).unwrap();
+        assert!(gated.series.iter().all(|(_, r)| r.is_err()), "{gated:?}");
+        assert_eq!(chain.inner.posts, posts_before);
+        // Expired: the next pass posts only what is missing (one chunk per print), the slot-0
+        // print again only if the uncertain post did not land.
+        chain.expired = true;
+        let third = Keeper.pass(&mut chain, &src, &series).unwrap();
         assert!(
-            second
+            third
                 .series
                 .iter()
                 .all(|(_, r)| r.as_ref().is_ok_and(|r| r.settled)),
-            "{second:?}"
+            "{third:?}"
         );
-        // The second pass posts only what is missing: the slot-0 print again only if the
-        // uncertain post did not land, and then once.
-        assert_eq!(chain.inner.posts - posts_before, usize::from(!lands));
+        assert_eq!(third.posts, third.groups, "{third:?}");
+        assert_eq!(chain.inner.posts - posts_before, third.posts as usize);
+        prints_after.push(third.groups);
         for s in &series {
             assert_eq!(view(&chain.inner.env, s).candidates.filled(), 30);
         }
     }
+    // The only difference between landing and not: the slot-0 print, posted once more.
+    assert_eq!(prints_after[1], prints_after[0] + 1, "{prints_after:?}");
 }
 
 /// Every post fails; settles work.
@@ -508,4 +527,191 @@ fn test_a_print_that_is_two_candidates_of_a_series_is_one_sample() {
         assert_eq!(v.candidates.filled(), 30);
         assert_eq!(v.candidates.parts().fallback_time, last_slot.publish_time);
     }
+}
+
+/// Where a source error (Hermes down or rate limited) strikes during a pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SourceFault {
+    /// `batch_capacity` cannot fetch the update.
+    Capacity,
+    /// The first chunk's post.
+    FirstPost,
+    /// The first chunk is rejected, its resend hits the source error.
+    Resend,
+    /// Every batch is rejected; the one-by-one fallback hits the source error.
+    Fallback,
+}
+
+/// [`Batched`] with a source error at one point of the pass.
+struct SourceDown {
+    inner: Batched,
+    fault: SourceFault,
+    batches: usize,
+}
+
+fn source_error() -> KeeperError {
+    KeeperError::Source("Hermes returned HTTP 429 (rate limited)".into())
+}
+
+impl Chain for SourceDown {
+    type Address = Address;
+    fn now(&self) -> Result<i64, KeeperError> {
+        self.inner.now()
+    }
+    fn account_data(&self, a: &Address) -> Result<Option<Vec<u8>>, KeeperError> {
+        self.inner.account_data(a)
+    }
+    fn post(&mut self, s: &Address, f: &[u8; 32], m: &PrintMsg) -> Result<(), KeeperError> {
+        if self.fault == SourceFault::Fallback {
+            return Err(source_error());
+        }
+        self.inner.post(s, f, m)
+    }
+    fn settle(&mut self, s: &Address) -> Result<(), KeeperError> {
+        self.inner.settle(s)
+    }
+    fn batch_capacity(&self, f: &[u8; 32], m: &PrintMsg) -> Result<usize, KeeperError> {
+        if self.fault == SourceFault::Capacity {
+            return Err(source_error());
+        }
+        self.inner.batch_capacity(f, m)
+    }
+    fn post_batch(&mut self, s: &[Address], f: &[u8; 32], m: &PrintMsg) -> Result<(), BatchError> {
+        self.batches += 1;
+        match (self.fault, self.batches) {
+            (SourceFault::FirstPost, 1) | (SourceFault::Resend, 2) => {
+                Err(BatchError::Failed(source_error()))
+            }
+            (SourceFault::Resend, 1) | (SourceFault::Fallback, _) => {
+                Err(BatchError::Failed(KeeperError::Chain("rejected".into())))
+            }
+            _ => self.inner.post_batch(s, f, m),
+        }
+    }
+    fn settle_batch(&mut self, s: &[Address]) -> Result<(), KeeperError> {
+        self.inner.settle_batch(s)
+    }
+}
+
+/// A [`TapeSource`] whose canonical slot queries fail: planning hits the source error.
+struct PlanningDown(TapeSource);
+
+impl metalbook_keeper::PriceSource for PlanningDown {
+    fn canonical_at(
+        &self,
+        _: &[u8; 32],
+        _: i64,
+        _: i64,
+        _: i64,
+    ) -> Result<Option<PrintMsg>, KeeperError> {
+        Err(source_error())
+    }
+    fn next_after(&self, f: &[u8; 32], t: i64, now: i64) -> Result<Option<PrintMsg>, KeeperError> {
+        self.0.next_after(f, t, now)
+    }
+    fn latest_at_or_before(
+        &self,
+        f: &[u8; 32],
+        t: i64,
+        earliest: i64,
+        now: i64,
+    ) -> Result<Option<PrintMsg>, KeeperError> {
+        self.0.latest_at_or_before(f, t, earliest, now)
+    }
+}
+
+/// Codex's probe (#47, review of 8c4f1af): eight series with 29 of 30 slots and the complete
+/// chain and fallback, one missing-slot group, capacity 3, past `D`. A source error at any
+/// point must leave every series unsettled (it can settle on 29 only by skipping a print the
+/// keeper knows exists), and a later working pass settles all of them on 30.
+fn twenty_nine_of_thirty() -> (Env, Vec<Address>, TapeSource) {
+    let all = tape();
+    let src = TapeSource::new(FEED_XAU, all.clone());
+    let (mut env, series) = listed();
+    env.set_time(EXPIRY + 900);
+    for s in &series {
+        for i in 1..30 {
+            let b = EXPIRY - WINDOW_S + i * SLOT_S;
+            let m = all
+                .iter()
+                .find(|m| {
+                    m.prev_publish_time < b
+                        && b <= m.publish_time
+                        && m.publish_time <= b + TOLERANCE_S
+                })
+                .unwrap();
+            env.post(s, m.price, m.publish_time, m.prev_publish_time)
+                .unwrap();
+        }
+        let mut last = EXPIRY;
+        let k = view(&env, s).params.k_next_print();
+        for _ in 0..k {
+            let m = metalbook_keeper::PriceSource::next_after(&src, &FEED_XAU, last, EXPIRY + 900)
+                .unwrap()
+                .unwrap();
+            env.post(s, m.price, m.publish_time, m.prev_publish_time)
+                .unwrap();
+            last = m.publish_time;
+        }
+        let m = metalbook_keeper::PriceSource::latest_at_or_before(
+            &src,
+            &FEED_XAU,
+            EXPIRY,
+            EXPIRY - 3_600,
+            EXPIRY + 900,
+        )
+        .unwrap()
+        .unwrap();
+        let _ = env.post(s, m.price, m.publish_time, m.prev_publish_time);
+        assert_eq!(view(&env, s).candidates.filled(), 29);
+    }
+    env.set_time(EXPIRY + 900 + D);
+    (env, series, src)
+}
+
+#[test]
+fn test_a_source_error_anywhere_in_a_pass_settles_no_subset() {
+    for fault in [
+        SourceFault::Capacity,
+        SourceFault::FirstPost,
+        SourceFault::Resend,
+        SourceFault::Fallback,
+    ] {
+        let (env, series, src) = twenty_nine_of_thirty();
+        let mut chain = SourceDown {
+            inner: Batched::new(env, 3),
+            fault,
+            batches: 0,
+        };
+        let report = Keeper.pass(&mut chain, &src, &series).unwrap();
+        assert_eq!(report.groups, 1, "{fault:?}: {report:?}");
+        let settled = series
+            .iter()
+            .filter(|s| view(&chain.inner.env, s).state == SeriesState::Settled)
+            .count();
+        assert_eq!(settled, 0, "{fault:?}: settled on 29 of 30: {report:?}");
+        // Hermes back: the next pass posts slot 0 and settles everyone on the full window.
+        let mut up = chain.inner;
+        let report = Keeper.pass(&mut up, &src, &series).unwrap();
+        assert!(
+            report
+                .series
+                .iter()
+                .all(|(_, r)| r.as_ref().is_ok_and(|r| r.settled)),
+            "{fault:?}: {report:?}"
+        );
+        for s in &series {
+            assert_eq!(view(&up.env, s).candidates.filled(), 30, "{fault:?}");
+        }
+    }
+    // Planning: the canonical slot queries fail.
+    let (env, series, src) = twenty_nine_of_thirty();
+    let mut chain = Batched::new(env, 3);
+    let report = Keeper
+        .pass(&mut chain, &PlanningDown(src), &series)
+        .unwrap();
+    assert!(report.series.iter().all(|(_, r)| r.is_err()), "{report:?}");
+    assert!(series
+        .iter()
+        .all(|s| view(&chain.env, s).state != SeriesState::Settled));
 }

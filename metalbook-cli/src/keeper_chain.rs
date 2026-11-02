@@ -30,6 +30,10 @@ pub const MAX_TX_BYTES: u64 = 1_232;
 /// default limit of 200,000 CU per instruction, so compute never binds before this.
 pub const MAX_BATCH: usize = 32;
 
+/// Blocks a transaction can still land after its blockhash was fetched (150) plus a margin,
+/// used when the transport cannot tell a failed send's last valid height.
+const BLOCKHASH_LIFETIME_MARGIN: u64 = 300;
+
 /// Where the binary update of a print comes from.
 pub trait UpdateSource {
     /// The Hermes binary update whose message for `feed` is published at `print.publish_time`.
@@ -85,6 +89,10 @@ pub struct RpcChain<T, U> {
     program_id: Address,
     payer: Keypair,
     pending: Vec<Pending>,
+    /// Last valid block heights of posts whose outcome is unknown: one of their transactions
+    /// may still land. No new post is sent until every one has expired (a payer-wide gate),
+    /// so a candidate is never posted twice while an earlier post of it may still land.
+    in_flight: Vec<u64>,
 }
 
 /// One `sample_settlement` per series, all reading `price_update`.
@@ -150,6 +158,7 @@ impl<T: Transport, U: UpdateSource> RpcChain<T, U> {
             program_id,
             payer,
             pending: Vec::new(),
+            in_flight: Vec::new(),
         }
     }
 
@@ -177,6 +186,43 @@ impl<T: Transport, U: UpdateSource> RpcChain<T, U> {
     #[must_use]
     pub fn orphans(&self) -> Vec<Address> {
         self.pending.iter().map(Pending::address).collect()
+    }
+
+    /// Refuses to post while an earlier post's outcome is unknown: every block height in
+    /// `in_flight` (and every in-flight encoded VAA) must be in the past. An unreadable block
+    /// height refuses too.
+    fn posting_gate(&mut self) -> Result<(), BatchError> {
+        let mut until: Vec<u64> = self.in_flight.clone();
+        until.extend(self.pending.iter().filter_map(|p| match *p {
+            Pending::InFlight { valid_until, .. } => Some(valid_until),
+            Pending::Open(_) => None,
+        }));
+        if until.is_empty() {
+            return Ok(());
+        }
+        let height = self
+            .transport
+            .borrow()
+            .block_height()
+            .map_err(|e| BatchError::Uncertain(chain_error(&e)))?;
+        self.in_flight.retain(|v| height <= *v);
+        match until.into_iter().filter(|v| height <= *v).max() {
+            None => Ok(()),
+            Some(last) => Err(BatchError::Uncertain(KeeperError::Chain(format!(
+                "an earlier post may still land until block {last} (now {height}): not posting"
+            )))),
+        }
+    }
+
+    /// The last block height at which a transaction of a failed post can still land: the
+    /// transport's last send expiry, or (if it cannot tell) a full blockhash lifetime and a
+    /// margin from now.
+    fn failed_post_horizon(&self) -> u64 {
+        let t = self.transport.borrow();
+        t.last_send_expiry().unwrap_or_else(|| {
+            t.block_height()
+                .map_or(u64::MAX, |h| h.saturating_add(BLOCKHASH_LIFETIME_MARGIN))
+        })
     }
 
     /// Sends `settles` as one transaction.
@@ -279,6 +325,7 @@ impl<T: Transport, U: UpdateSource> Chain for RpcChain<T, U> {
         print: &PrintMsg,
     ) -> Result<(), BatchError> {
         self.close_orphans();
+        self.posting_gate()?;
         let bytes = self
             .updates
             .update(feed, print)
@@ -313,13 +360,14 @@ impl<T: Transport, U: UpdateSource> Chain for RpcChain<T, U> {
             0,
             |price_update| samples(&program_id, series, price_update),
         );
+        // Any failure after sending began is uncertain: pyth-post re-reads the encoded VAA,
+        // but a later transaction (the samples) whose confirmation was lost can still land
+        // until its blockhash expires, and an RPC error cannot be told from a rejection. Only
+        // planning errors (nothing was sent) are failures.
         match sent {
             Ok(_) => Ok(()),
             Err(e) => Err(match &e {
-                PostError::Orphaned { encoded_vaa, .. } => {
-                    self.pending.push(Pending::Open(*encoded_vaa));
-                    BatchError::Failed(chain_error(&e))
-                }
+                PostError::Update(_) => BatchError::Failed(chain_error(&e)),
                 PostError::Uncertain {
                     encoded_vaa,
                     valid_until,
@@ -329,9 +377,20 @@ impl<T: Transport, U: UpdateSource> Chain for RpcChain<T, U> {
                         address: *encoded_vaa,
                         valid_until: *valid_until,
                     });
+                    self.in_flight.push(*valid_until);
                     BatchError::Uncertain(chain_error(&e))
                 }
-                _ => BatchError::Failed(chain_error(&e)),
+                PostError::Orphaned { encoded_vaa, .. } => {
+                    self.pending.push(Pending::Open(*encoded_vaa));
+                    let horizon = self.failed_post_horizon();
+                    self.in_flight.push(horizon);
+                    BatchError::Uncertain(chain_error(&e))
+                }
+                _ => {
+                    let horizon = self.failed_post_horizon();
+                    self.in_flight.push(horizon);
+                    BatchError::Uncertain(chain_error(&e))
+                }
             }),
         }
     }

@@ -30,7 +30,9 @@ use std::path::PathBuf;
 use base64::Engine;
 use common::*;
 use metalbook_cli::keeper_chain::{RpcChain, UpdateSource};
-use metalbook_keeper::{Chain, Keeper, KeeperError, PrintMsg, SeriesView, TapeSource, TickReport};
+use metalbook_keeper::{
+    BatchError, Chain, Keeper, KeeperError, PrintMsg, SeriesView, TapeSource, TickReport,
+};
 use metalbook_sdk::ix;
 use pyth_post::ix::{PYTH_RECEIVER, WORMHOLE_PROGRAM};
 use pyth_post::{post, AccumulatorUpdate, PostError, Transport};
@@ -805,4 +807,117 @@ fn test_an_address_that_never_lands_is_dropped_once_its_blockhash_expires() {
     chain.transport().svm.env.svm.warp_to_slot(slot + 1_000);
     chain.close_orphans();
     assert!(chain.orphans().is_empty());
+}
+
+/// [`Svm`] whose post's last transaction (the samples) is held and reported failed, and whose
+/// following sends (pyth-post's closes) fail without landing while `down`: the RPC is gone
+/// right after the samples were sent. The held transaction lands on `deliver_held`.
+struct SamplesLandLate {
+    svm: Svm,
+    sends: usize,
+    down: bool,
+    held: Vec<Transaction>,
+}
+
+impl SamplesLandLate {
+    fn deliver_held(&mut self) {
+        for tx in std::mem::take(&mut self.held) {
+            self.svm.deliver(&tx).unwrap();
+        }
+    }
+}
+
+impl Transport for SamplesLandLate {
+    delegate_reads!();
+    fn send(
+        &mut self,
+        instructions: &[Instruction],
+        payer: &Keypair,
+        extra: Option<&Keypair>,
+    ) -> Result<String, PostError> {
+        let index = self.sends;
+        self.sends += 1;
+        let tx = self.svm.signed(instructions, payer, extra);
+        if index == 2 {
+            self.held.push(tx);
+            return Err(PostError::Chain("confirmation timed out".into()));
+        }
+        if self.down && index > 2 {
+            return Err(PostError::Chain("connection refused".into()));
+        }
+        self.svm.deliver(&tx)
+    }
+}
+
+fn samples_late_chain(
+    r: &Recorded,
+    print: PrintMsg,
+) -> (RpcChain<SamplesLandLate, Recording>, Address) {
+    let (mut env, series) = setup(r);
+    env.set_time(r.publish_time + 3_610);
+    let payer = env.funded();
+    let mut svm = Svm::new(env);
+    svm.fresh_blockhash = false;
+    let t = SamplesLandLate {
+        svm,
+        sends: 0,
+        down: true,
+        held: Vec::new(),
+    };
+    (chain(t, r, print, &payer), series)
+}
+
+#[test]
+fn test_an_uncertain_batched_post_gates_every_post_until_it_lands_or_expires() {
+    for lands in [true, false] {
+        let r = recorded();
+        let print = recorded_print(&r);
+        let (mut chain, series) = samples_late_chain(&r, print);
+        // The samples' transaction is in flight and the closes fail: uncertain, not rejected.
+        let e = chain.post_batch(&[series], &FEED_XAU, &print).unwrap_err();
+        assert!(matches!(e, BatchError::Uncertain(_)), "{e:?}");
+        if lands {
+            // It lands late (before any cleanup could close its encoded VAA).
+            chain.transport().deliver_held();
+            assert_eq!(
+                fallback_time(&chain.transport().svm.env, &series),
+                r.publish_time
+            );
+        }
+        chain.transport().down = false;
+        let vaas = encoded_vaas(&chain.transport().svm.env);
+        let sent = chain.transport().sends;
+        // Before its blockhash expires, no new post is sent (the payer-wide gate), so the
+        // candidate cannot be posted twice. The only send allowed is cleanup: closing the
+        // encoded VAA the failed closes left open (which also makes a late landing
+        // impossible from then on).
+        let e = chain.post_batch(&[series], &FEED_XAU, &print).unwrap_err();
+        assert!(e.to_string().contains("may still land"), "{e}");
+        assert!(chain.post(&series, &FEED_XAU, &print).is_err());
+        assert!(
+            chain.transport().sends - sent <= 1,
+            "only the cleanup close"
+        );
+        assert!(
+            encoded_vaas(&chain.transport().svm.env) <= vaas,
+            "no new encoded VAA"
+        );
+        // Past the last valid height the gate opens. A keeper pass then posts only if the
+        // samples never landed.
+        let slot = chain.transport().svm.env.svm.get_sysvar::<Clock>().slot;
+        chain.transport().svm.env.svm.warp_to_slot(slot + 1_000);
+        let tape = TapeSource::new(FEED_XAU, vec![print]);
+        let report = Keeper.pass(&mut chain, &tape, &[series]).unwrap();
+        let (_, outcome) = &report.series[0];
+        assert!(outcome.is_ok(), "{report:?}");
+        assert_eq!(report.posts, u32::from(!lands), "{report:?}");
+        assert_eq!(
+            fallback_time(&chain.transport().svm.env, &series),
+            r.publish_time
+        );
+        // The encoded VAA the failed closes left open is closed by the next cleanup.
+        chain.close_orphans();
+        assert!(chain.orphans().is_empty());
+        assert_eq!(encoded_vaas(&chain.transport().svm.env), 0);
+    }
 }
