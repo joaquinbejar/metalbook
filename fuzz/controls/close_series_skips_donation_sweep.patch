@@ -1,0 +1,13 @@
+diff --git a/metalbook-program/src/processor/close.rs b/metalbook-program/src/processor/close.rs
+index d50f254..be62b8d 100644
+--- a/metalbook-program/src/processor/close.rs
++++ b/metalbook-program/src/processor/close.rs
+@@ -82,7 +82,7 @@ pub fn close_series(
+         .amount();
+ 
+     with_series_signer(&s, |signer| {
+-        if unowed > 0 {
++        if unowed > u64::MAX {
+             TransferChecked::new(
+                 vault,
+                 usdc_mint,

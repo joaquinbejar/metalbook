@@ -1,0 +1,13 @@
+diff --git a/metalbook-program/src/processor/settlement.rs b/metalbook-program/src/processor/settlement.rs
+index 24e3eb3..e8ea95f 100644
+--- a/metalbook-program/src/processor/settlement.rs
++++ b/metalbook-program/src/processor/settlement.rs
+@@ -64,7 +64,7 @@ pub fn sample_settlement(
+             i64::try_from(price.price().get()).map_err(|_| MetalbookError::InvalidPrint)?;
+         accept_print(
+             mantissa,
+-            price.conf(),
++            0,
+             price.exponent(),
+             price.publish_time().get(),
+             price.prev_publish_time().get(),

@@ -1,0 +1,58 @@
+# Fuzzing (docs/PLAN-improvements.md, milestone H5): every cargo-fuzz target for 10 minutes on
+# its corpus, then the deterministic fault controls (fuzz/controls), nightly and on demand. Not
+# part of the PR checks: the fuzz harnesses' committed regressions are replayed on stable by
+# `make test` (metalbook-tests/tests/fuzz_regressions.rs) in ci.yml. A crash uploads its input;
+# add it to fuzz/regressions/<target>/ with the fix.
+#
+# Pins: the toolchains of ci.yml (for `make program`), a dated nightly and cargo-fuzz 0.13.2.
+
+name: Fuzz
+
+on:
+  schedule:
+    - cron: "41 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_PIN: "1.99.1"
+  AGAVE_VERSION: "v4.4.0"
+  AGAVE_SHA256: "3363f4728fe786ac7036e342a20df928aa2e3e43f807fbdce67814840538c574"
+  PLATFORM_TOOLS_VERSION: "v1.57"
+  PLATFORM_TOOLS_SHA256: "b0f7af104adf726fff2a6a09ea2eb2f2d2965c92295f4d7388c08d140e0c2b00"
+  CARGO_TERM_COLOR: never
+  MAKE_PINS: RUST_TOOLCHAIN=1.99.1 CARGO_FLAGS=--locked
+  FUZZ_TOOLCHAIN: "nightly-2026-10-29"
+  CARGO_FUZZ_VERSION: "0.13.2"
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/toolchains
+      - name: Nightly and cargo-fuzz
+        run: |
+          rustup toolchain install "$FUZZ_TOOLCHAIN" --profile minimal
+          cargo +"$FUZZ_TOOLCHAIN" install --locked cargo-fuzz --version "$CARGO_FUZZ_VERSION"
+          cargo +"$FUZZ_TOOLCHAIN" fuzz --version
+      - name: Fuzz crate formatting
+        run: make $MAKE_PINS fuzz-fmt-check
+      - name: Fuzz every target for 10 minutes
+        run: make $MAKE_PINS FUZZ_TOOLCHAIN="$FUZZ_TOOLCHAIN" FUZZ_SECONDS=600 fuzz
+      - name: Fault controls
+        run: make FUZZ_TOOLCHAIN="$FUZZ_TOOLCHAIN" fuzz-control
+      - name: Crash inputs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts
+          if-no-files-found: ignore
