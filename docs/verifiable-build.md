@@ -1,8 +1,9 @@
 # Verifiable build
 
-The deployed metalbook program is built by `solana-verify` in a Docker image pinned by digest,
-so anyone can rebuild it from a commit and compare the hash with the program on chain
-(docs/PLAN-improvements.md, milestone H2).
+`make verifiable` builds metalbook-program with `solana-verify` in a Docker image pinned by
+digest, so anyone can rebuild it from a commit and compare the hash with the program on chain
+(docs/PLAN-improvements.md, milestone H2). The program on devnet has that hash (last table);
+every later deployment uses the binary built this way.
 
 ## Evidence
 
@@ -29,7 +30,11 @@ its compute units are measured on their own by `make bench-verifiable` into
 
 1. prints `cargo build-sbf --version` inside the pinned image and fails on another toolchain;
 2. builds the program twice with `make verifiable`, each time in a clean clone of the commit at
-   a different path, and fails unless the two hashes are equal;
+   a different path, and fails unless the two hashes are equal. Each build keeps solana-verify's
+   exit status and fails on a stack frame above 4 KiB in its log (`scripts/check-sbf-log.sh`,
+   the check `make program` runs), so the deployed binary is itself checked for stack safety;
+   `make verifiable-control` (in `make pre-push`) drives that recipe with a stand-in
+   solana-verify and proves both checks fire;
 3. uploads the binary as the artifact `metalbook_program-verifiable`;
 4. fails unless the hash equals the `Program hash` line above (`make verifiable-check`);
 5. measures the binary's CU and fails unless `docs/benchmarks-verifiable.md` is the committed
