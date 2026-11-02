@@ -63,9 +63,12 @@ Nothing below is done; it is the procedure the mainnet launch follows.
   (the current authority) and the vault both sign, the vault through a multisig proposal that
   meets the threshold, or a plain transfer to the vault address, which the vault does not sign
   and so must be checked by hand first. SAT is the one to use
-  (https://docs.squads.so/main/navigating-your-squad/developers-assets/programs). The admin is
-  handed over the same way: `init_config` by the deploy key, then `set_config --new-admin
-  <VAULT>` signed by it; afterwards every admin instruction is a multisig proposal.
+  (https://docs.squads.so/main/navigating-your-squad/developers-assets/programs). The admin:
+  `init_config` signed by the deploy key while it is still the upgrade authority, then
+  `set_config --new-admin <VAULT>` signed by it. `set_config` does not need the new admin's
+  signature, so the vault address is checked before sending and with `show-config` after;
+  from then on every admin instruction is a multisig proposal. Both handovers happen before
+  any series is listed.
 - **Time lock.** The multisig delays every upgrade, so holders get notice of a pending upgrade
   before it lands. Notice only: an open position in a cash-settled series may not be closable
   before the upgrade at a fair price, or at all, so the time lock is not an exit guarantee.
