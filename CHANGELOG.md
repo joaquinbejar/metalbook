@@ -15,8 +15,6 @@ All notable changes to this project are documented here. The format follows
   `make program`, and `make verifiable-control` proves it and the exit status are enforced. The
   CI workflow `verifiable.yml` builds it twice in clean clones, checks the hash and the CU
   table, and uploads the binary. Devnet already runs that binary (hash `62718c46…`).
-  `docs/benchmarks-verifiable.md`. The CI workflow `verifiable.yml` builds it twice in clean
-  clones, checks the hash and the CU table, and uploads the binary.
 - cargo-fuzz targets `settlement_model`, `sample_settlement` and `ledger_sequence` (`fuzz/`,
   its own workspace, nightly), with an independent settlement and payoff model and a
   `PriceUpdateV2` decoder as acceptance oracle; committed regressions replayed on stable by
