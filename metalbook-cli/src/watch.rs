@@ -266,10 +266,21 @@ pub fn heartbeat_due(last: Option<(i64, u64)>, digest: u64, now: i64) -> bool {
 /// - A resolution notice is retried until sent.
 #[derive(Debug, Clone, Default)]
 pub struct Announcer {
-    /// Active keys: (delivered to the channel, delivered by DM).
-    active: BTreeMap<String, (bool, bool)>,
+    /// Active keys: the last alert text, and whether it reached the channel and the DM.
+    active: BTreeMap<String, Delivery>,
     /// Resolved keys whose notice has not been sent yet.
     resolving: std::collections::BTreeSet<String>,
+}
+
+/// One active alert's delivery state.
+#[derive(Debug, Clone, Default)]
+struct Delivery {
+    /// The alert's last observed text.
+    text: String,
+    /// Whether the current condition is unobserved this step (shown as last known).
+    unobserved: bool,
+    channel: bool,
+    direct: bool,
 }
 
 impl Announcer {
@@ -322,22 +333,37 @@ impl Announcer {
                 Err(e) => log.push(format!("resolution of {k} not sent (will retry): {e}")),
             }
         }
-        // Announce: every destination not yet delivered.
+        // Refresh the active set from this step's alerts; keys kept only because they are
+        // unobserved keep their last text, marked as last known.
         for alert in current {
-            let entry = self.active.entry(alert.key()).or_insert((false, false));
-            let text = alert.text();
-            if !entry.0 {
+            let entry = self.active.entry(alert.key()).or_default();
+            entry.text = alert.text();
+            entry.unobserved = false;
+        }
+        for (k, entry) in &mut self.active {
+            if !now_keys.contains(k) {
+                entry.unobserved = true;
+            }
+        }
+        // Announce: every active key, every destination not yet delivered.
+        for entry in self.active.values_mut() {
+            let text = if entry.unobserved {
+                format!("{} (last known; currently unobserved)", entry.text)
+            } else {
+                entry.text.clone()
+            };
+            if !entry.channel {
                 match notify.send(&Target::Channel(channel.into()), &text) {
                     Ok(()) => {
-                        entry.0 = true;
+                        entry.channel = true;
                         log.push(text.clone());
                     }
                     Err(e) => log.push(format!("alert to the channel not sent (will retry): {e}")),
                 }
             }
-            if !entry.1 {
+            if !entry.direct {
                 match notify.send(&Target::Direct(direct.into()), &text) {
-                    Ok(()) => entry.1 = true,
+                    Ok(()) => entry.direct = true,
                     Err(e) => log.push(format!("alert by DM not sent (will retry): {e}")),
                 }
             }
@@ -624,6 +650,28 @@ mod tests {
         a.step(&n, CHANNEL, "c/s", &[low(1)], &[]);
         a.step(&n, CHANNEL, "c/s", &[low(1)], &[]);
         assert_eq!(n.sent.borrow().len(), 2);
+    }
+
+    #[test]
+    fn test_an_undelivered_alert_is_retried_while_unobserved_then_resolved() {
+        // Codex R2: send fails, the resource becomes unobserved, the bus recovers (the last
+        // known alert is delivered), then it is observed gone (resolved once).
+        let n = Recorder::default();
+        let mut a = Announcer::new();
+        let key = low(1).key();
+        n.down.set(true);
+        a.step(&n, CHANNEL, "c/s", &[low(1)], &[]);
+        n.down.set(false);
+        a.step(&n, CHANNEL, "c/s", &[], std::slice::from_ref(&key));
+        {
+            let sent = n.sent.borrow();
+            assert_eq!(sent.len(), 2, "{sent:?}");
+            assert!(sent.iter().all(|(_, b)| b.contains("last known")));
+        }
+        a.step(&n, CHANNEL, "c/s", &[], &[]);
+        let sent = n.sent.borrow();
+        assert_eq!(sent.len(), 3, "{sent:?}");
+        assert_eq!(sent[2].1, format!("RESOLVED {key}"));
     }
 
     #[test]
