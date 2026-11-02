@@ -13,12 +13,22 @@
 //! encoded VAA that consecutive scans have seen unchanged for `LEFTOVER_MIN_AGE` blocks.
 //! When Hermes rate limits a pass, the next pass resumes at the series where it stopped, so
 //! every series progresses under a recurring limit.
+//!
+//! Hermes budget (`docs/PLAN-improvements.md`, P2): the key is shared with varswap, and
+//! metalbook's processes together send at most 7 requests a minute. Every request of this
+//! process is paced at `--hermes-interval-s` (default and floor 12 s, 5 a minute).
+//!
+//! After every pass that sent anything, one line reports the pass's transactions (confirmed,
+//! failed, bytes) and Hermes requests by status, for the batching baseline (P3, P1).
 
 use std::process::ExitCode;
 use std::time::Duration;
 
 use clap::Parser;
 use metalbook_cli::keeper_chain::RpcChain;
+use metalbook_cli::metrics::{
+    hermes_interval, CountingHttp, HttpCounts, Metered, TxCounts, MIN_HERMES_INTERVAL_S,
+};
 use metalbook_cli::params::parse_address;
 use metalbook_cli::rpc::Cluster;
 use metalbook_cli::{read_keypair, CliError};
@@ -50,6 +60,13 @@ struct Args {
     /// Only these series (default: every series of the program).
     #[arg(long)]
     series: Vec<String>,
+    /// Never tick these series (for example series left to void on purpose).
+    #[arg(long)]
+    exclude: Vec<String>,
+    /// Seconds between two Hermes requests of this process; at least 12. The sum over every
+    /// metalbook process sharing the key must stay at or under 7 requests a minute.
+    #[arg(long, default_value_t = MIN_HERMES_INTERVAL_S)]
+    hermes_interval_s: u64,
     /// Seconds between passes; keep it well under the challenge delay `D`.
     #[arg(long, default_value_t = 60)]
     interval_s: u64,
@@ -68,17 +85,27 @@ fn run(args: Args) -> Result<(), CliError> {
     let payer = read_keypair(&args.keypair)?;
     let payer_address = solana_signer::Signer::pubkey(&payer);
     let hermes = HermesConfig::from_env().map_err(|e| CliError::Usage(e.to_string()))?;
-    // At most 6 Hermes requests a minute: the timestamp endpoint allows about 10 per key.
-    let source =
-        HermesSource::new(hermes, UreqHttp::new()).with_min_interval(Duration::from_secs(10));
+    let interval = hermes_interval(args.hermes_interval_s)?;
+    let http = CountingHttp::new(UreqHttp::new());
+    let source = HermesSource::new(hermes, &http).with_min_interval(interval);
     let fixed: Vec<Address> = args
         .series
         .iter()
         .map(|s| parse_address(s))
         .collect::<Result<_, _>>()?;
+    let excluded: Vec<Address> = args
+        .exclude
+        .iter()
+        .map(|s| parse_address(s))
+        .collect::<Result<_, _>>()?;
     let _lock = PayerLock::acquire(&payer_address).map_err(|e| CliError::Usage(e.to_string()))?;
     let cluster = Cluster::new(&args.url);
-    let mut chain = RpcChain::new(RpcTransport::new(&args.url), &source, program_id, payer);
+    let mut chain = RpcChain::new(
+        Metered::new(RpcTransport::new(&args.url)),
+        &source,
+        program_id,
+        payer,
+    );
 
     if let Some(series) = &args.check_post {
         let series = parse_address(series)?;
@@ -107,6 +134,9 @@ fn run(args: Args) -> Result<(), CliError> {
     let mut resume: Option<Address> = None;
     let mut leftovers = LeftoverScanner::new();
     loop {
+        let started = std::time::Instant::now();
+        let tx_before = chain.transport().counts();
+        let http_before = http.counts();
         // Encoded VAAs this payer left open (a post that failed after verification, or one
         // whose creation landed late): scanned at startup and every ORPHAN_SCAN_PASSES passes,
         // closed once two scans LEFTOVER_MIN_AGE blocks apart have seen them unchanged.
@@ -128,6 +158,7 @@ fn run(args: Args) -> Result<(), CliError> {
         } else {
             fixed.clone()
         };
+        all.retain(|s| !excluded.contains(s));
         // Resume where the last rate-limited pass stopped.
         resume_at(&mut all, resume.take());
         let now = chain.now().map_err(|e| CliError::Rpc(e.to_string()))?;
@@ -167,6 +198,12 @@ fn run(args: Args) -> Result<(), CliError> {
                 }
             }
         }
+        report_pass(
+            pass,
+            started.elapsed(),
+            &chain.transport().counts().since(&tx_before),
+            &http.counts().since(&http_before),
+        );
         if args.once {
             return Ok(());
         }
@@ -180,6 +217,26 @@ fn resume_at(series: &mut [Address], resume: Option<Address>) {
     if let Some(i) = resume.and_then(|r| series.iter().position(|a| *a == r)) {
         series.rotate_left(i);
     }
+}
+
+/// One line per pass that sent anything: transactions and Hermes requests.
+fn report_pass(pass: u64, took: Duration, tx: &TxCounts, http: &HttpCounts) {
+    if tx.ok == 0 && tx.failed == 0 && http.total() == 0 {
+        return;
+    }
+    println!(
+        "pass {pass}: {:.1} s; tx ok {} failed {} bytes {} max {}; hermes {} (200 {}, 404 {}, 429 {}, other {})",
+        took.as_secs_f64(),
+        tx.ok,
+        tx.failed,
+        tx.bytes,
+        tx.max_bytes,
+        http.total(),
+        http.ok,
+        http.not_found,
+        http.rate_limited,
+        http.other
+    );
 }
 
 /// Whether a tick failed on Hermes' rate limit (`HermesSource`'s 429 and cooldown errors).

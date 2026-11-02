@@ -505,6 +505,28 @@ fn test_the_rpc_chain_posts_through_the_receiver_for_the_keeper() {
 }
 
 #[test]
+fn test_a_metered_post_counts_its_three_transactions() {
+    let r = recorded();
+    let print = recorded_print(&r);
+    let (mut env, series) = setup(&r);
+    env.set_time(r.publish_time + 3_610);
+    let payer = env.funded();
+    let mut chain = chain(
+        metalbook_cli::metrics::Metered::new(Svm::new(env)),
+        &r,
+        print,
+        &payer,
+    );
+    let tape = TapeSource::new(FEED_XAU, vec![print]);
+    assert!(Keeper.tick(&mut chain, &tape, &series).unwrap().fallback);
+    let counts = chain.transport().counts();
+    // Create, init and write; write and verify; post, sample and close. Nothing failed.
+    assert_eq!((counts.ok, counts.failed), (3, 0), "{counts:?}");
+    assert!(counts.max_bytes <= 1_232, "{counts:?}");
+    assert!(counts.bytes > counts.max_bytes, "{counts:?}");
+}
+
+#[test]
 fn test_the_rpc_chain_refuses_an_update_that_is_not_the_chosen_print() {
     let r = recorded();
     let signed = recorded_print(&r);

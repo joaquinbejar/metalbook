@@ -444,9 +444,10 @@ impl<H: HttpGet> HermesSource<H> {
         self
     }
 
-    /// Paces requests: at least `interval` between two of them (default none). The keeper
-    /// binary uses 10 seconds, at most 6 a minute, under the timestamp endpoint's limit of
-    /// about 10 a minute per key.
+    /// Paces requests: at least `interval` between two of them (default none). Every request
+    /// (timestamp queries, 404s, `/latest`) goes through this pacing. The keeper binary uses
+    /// 12 seconds by default, 5 a minute: metalbook's processes share at most 7 a minute of a
+    /// key that allows about 10 (`docs/PLAN-improvements.md`, P2).
     #[must_use]
     pub fn with_min_interval(mut self, interval: std::time::Duration) -> Self {
         self.min_interval = interval;

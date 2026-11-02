@@ -8,6 +8,7 @@
 
 pub mod error;
 pub mod keeper_chain;
+pub mod metrics;
 pub mod params;
 pub mod rpc;
 

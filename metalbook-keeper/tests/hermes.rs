@@ -488,6 +488,39 @@ fn test_requests_are_paced() {
 }
 
 #[test]
+fn test_misses_and_latest_are_paced_too() {
+    // The budget counts every request: a 404 (no update at that time yet) and `/latest` wait
+    // their turn like a found update.
+    let at = |t: i64| PrintMsg {
+        price: 1,
+        conf: 0,
+        expo: -3,
+        publish_time: t,
+        prev_publish_time: t - 1,
+    };
+    let fake = FakeHermes::new(vec![at(100), at(200)]);
+    let source =
+        HermesSource::new(config(), &fake).with_min_interval(std::time::Duration::from_millis(200));
+    let start = std::time::Instant::now();
+    assert_eq!(source.first_at_or_after(&FEED, 201).unwrap(), None); // 404
+    assert_eq!(source.latest(&FEED).unwrap(), Some(at(200))); // `/latest`
+    assert_eq!(
+        source
+            .first_at_or_after(&FEED, 100)
+            .unwrap()
+            .map(|u| u.print),
+        Some(at(100))
+    ); // 200
+    let urls: Vec<String> = fake.seen.borrow().iter().map(|(u, _)| u.clone()).collect();
+    assert_eq!(urls.len(), 3, "{urls:?}");
+    assert!(urls[0].contains("/price/201?"), "{urls:?}");
+    assert!(urls[1].contains("/price/latest?"), "{urls:?}");
+    assert!(urls[2].contains("/price/100?"), "{urls:?}");
+    // Three requests: two waits of at least 200 ms between them.
+    assert!(start.elapsed() >= std::time::Duration::from_millis(400));
+}
+
+#[test]
 fn test_future_times_cost_no_request() {
     let fake = FakeHermes::new(tape());
     let source = HermesSource::new(config(), &fake);
