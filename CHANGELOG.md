@@ -54,6 +54,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- `metalbook-keeper` no longer exits when the series list or the clock cannot be read (a
+  rate-limited `getProgramAccounts`, an RPC timeout): it prints `pass N: skipped, the chain
+  could not be read` and retries at the next pass. `--once` still exits with the error.
 - The keeper's Hermes pacing moves from 10 s to 12 s by default.
 
 - The keeper uses pyth-post 0.1.1: its payer lock is `pyth_post::PayerLock`

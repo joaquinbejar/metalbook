@@ -83,7 +83,9 @@ Start again with the same flags (above) and record the new PID. Then check, in t
   still listed (`resume_at` in `metalbook-cli/src/bin/keeper.rs`). The cursor lives in
   memory only, so a restart starts from the first series again. Persistent 429s mean another
   process is spending metalbook's share: check every process's `--hermes-interval-s`.
-- **RPC errors**: each failing series prints its error and the loop goes on; a post that fails
+- **RPC errors**: an error reading the series list or the clock skips the whole pass
+  (`pass N: skipped, the chain could not be read: …`) and the next pass tries again; the process
+  does not exit (it used to, before 2026-11-02). Each failing series prints its error and the loop goes on; a post that fails
   without its candidate on chain stops that series' tick before `settle` (codex #14), so a
   subset is never settled by the keeper itself.
 - **Low payer balance**: each post costs 0.000025 SOL in fees (5 signatures) plus temporary rent that
