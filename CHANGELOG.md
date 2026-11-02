@@ -11,6 +11,8 @@ All notable changes to this project are documented here. The format follows
 - `metalbook-keeper --exclude <SERIES>` (repeatable) and `--hermes-interval-s` (default and
   floor 12 s: metalbook's share of the Hermes key is 7 requests a minute across its
   processes).
+- `metalbook-admin settle --series` and `close-series --series` (the void drill: `close-series`
+  creates the rent payer's USDC account first, as the program requires it).
 - Per-pass keeper metrics: transactions confirmed and failed, serialized bytes, Hermes
   requests by status (`metalbook_cli::metrics`).
 
