@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `docs/keys.md` (H3, part 1): the four roles, the devnet separation steps that run after the
+  Nov 6 drill, and the mainnet procedure (Squads v4 multisig with a time lock, hot keeper
+  payers, the final step). Tests: after an admin rotation `set_calendar` rejects the old admin,
+  and a forged `Config` is rejected by `set_calendar`.
 - Verifiable build (H2): `make verifiable` builds the program with solana-verify 0.5.2 in the
   verifiable-build image pinned by digest; `make verifiable-check` compares the hash with
   `docs/verifiable-build.md`, and `make bench-verifiable` measures that binary into

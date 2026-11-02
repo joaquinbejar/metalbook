@@ -208,6 +208,42 @@ fn test_set_calendar_rules() {
     assert_eq!(env.account(&calendar_address(XAU)).data[4], 64);
 }
 
+#[test]
+fn test_set_calendar_after_admin_rotation_rejects_the_old_admin() {
+    let mut env = Env::new();
+    let admin = env.admin.insecure_clone();
+    let new_admin = env.funded();
+    let ix = env.ix_set_config(
+        &admin.pubkey(),
+        &new_admin.pubkey(),
+        Params::default_params(),
+    );
+    env.send(&[ix], &[&admin]).unwrap();
+    let ix = env.ix_set_calendar(&admin.pubkey(), XAU, &[EXPIRY]);
+    expect_code(env.send(&[ix], &[&admin]), code::NOT_AUTHORITY);
+    let ix = env.ix_set_calendar(&new_admin.pubkey(), XAU, &[EXPIRY, EXPIRY_2]);
+    env.send(&[ix], &[&new_admin]).unwrap();
+    assert_eq!(env.account(&calendar_address(XAU)).data[4], 2);
+}
+
+#[test]
+fn test_set_calendar_forged_config_is_rejected() {
+    let mut env = Env::new();
+    let admin = env.admin.insecure_clone();
+    // A copy of the real config (naming the same admin) at another address, owned by another
+    // program, then by this program but off the config PDA.
+    let fake = Address::new_unique();
+    env.forge(&config_address(), fake, Some(ATTACKER_PROGRAM));
+    let mut ix = env.ix_set_calendar(&admin.pubkey(), XAU, &[EXPIRY]);
+    ix.accounts[1].pubkey = fake;
+    expect_code(
+        env.send(&[ix.clone()], &[&admin]),
+        code::INVALID_ACCOUNT_OWNER,
+    );
+    env.forge(&config_address(), fake, None);
+    expect_code(env.send(&[ix], &[&admin]), code::INVALID_PDA);
+}
+
 // ---------------------------------------------------------------------------------------------
 // create_series
 // ---------------------------------------------------------------------------------------------
