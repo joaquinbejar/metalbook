@@ -275,3 +275,8 @@ fn test_full_lifecycle_through_the_sdk() {
         Err(DecodeError::Layout(_))
     ));
 }
+
+#[test]
+fn planted_failure() {
+    assert_eq!(1, 2);
+}
