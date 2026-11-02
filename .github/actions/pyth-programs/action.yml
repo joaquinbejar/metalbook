@@ -1,0 +1,25 @@
+name: Pyth programs
+description: >
+  Restores the devnet Pyth receiver and Wormhole core bridge binaries that `make pyth-programs`
+  dumps, cached by the SHA-256 values pinned in the Makefile. `make pyth-programs` checks both
+  hashes either way and dumps again only a missing or different file.
+runs:
+  using: composite
+  steps:
+    - name: Pinned hashes
+      id: pins
+      shell: bash
+      run: |
+        set -euo pipefail
+        r=$(sed -n 's/^PYTH_RECEIVER_SHA256 := //p' Makefile)
+        w=$(sed -n 's/^WORMHOLE_SHA256 := //p' Makefile)
+        [ -n "$r" ] && [ -n "$w" ] || { echo "pinned hashes not found in the Makefile"; exit 1; }
+        echo "key=pyth-programs-$r-$w" >> "$GITHUB_OUTPUT"
+
+    - name: Cache the dumped programs
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          target/deploy/pyth_receiver.so
+          target/deploy/wormhole_core_bridge.so
+        key: ${{ steps.pins.outputs.key }}

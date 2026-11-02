@@ -4,6 +4,8 @@
 
 **Cash-settled European options on gold and silver on Solana**
 
+[![CI](https://github.com/joaquinbejar/metalbook/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/joaquinbejar/metalbook/actions/workflows/ci.yml)
+
 </div>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/joaquinbejar/metalbook/blob/main/LICENSE)
