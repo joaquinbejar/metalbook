@@ -16,6 +16,26 @@ pub const LISTING_BAND_BPS: u16 = 500;
 /// closed or the feed stalled, and strikes around a stale spot are not listed.
 pub const MAX_PRINT_AGE_S: i64 = 300;
 
+/// How far in the future a Pyth print's `publish_time` may be against the local clock, in
+/// seconds: clock skew between this machine and Pythnet. Anything later is refused as
+/// impossible rather than treated as fresh.
+pub const MAX_CLOCK_SKEW_S: i64 = 5;
+
+/// Whether `list-week` or `reclaim` sends: `--execute` sends, the global `--dry-run` never does,
+/// and asking for both is refused before anything is read or sent.
+///
+/// # Errors
+///
+/// [`CliError::Usage`] when both are given.
+pub fn sends(dry_run: bool, execute: bool) -> Result<bool, CliError> {
+    if dry_run && execute {
+        return Err(CliError::Usage(
+            "--dry-run and --execute conflict: nothing read or sent".into(),
+        ));
+    }
+    Ok(execute)
+}
+
 /// `create_series` CU from `docs/benchmarks.md`: a put and a capped call.
 pub const CREATE_PUT_CU: u32 = 29_600;
 /// See [`CREATE_PUT_CU`].
@@ -149,6 +169,12 @@ pub fn fresh_print(print: &PrintMsg, now: i64, max_age_s: i64, expo: i32) -> Res
         return Err(CliError::Usage(format!(
             "the Pyth exponent is {}, the config pins {expo}",
             print.expo
+        )));
+    }
+    if print.publish_time > now.saturating_add(MAX_CLOCK_SKEW_S) {
+        return Err(CliError::Usage(format!(
+            "the latest Pyth print is published {} s in the future (clock skew limit {MAX_CLOCK_SKEW_S} s): check the local clock; nothing listed",
+            print.publish_time.saturating_sub(now)
         )));
     }
     let age = now.saturating_sub(print.publish_time);
@@ -307,8 +333,19 @@ mod tests {
             prev_publish_time: 999,
         };
         assert!(fresh_print(&p, 1_300, 300, -3).is_ok());
+        // Future prints: within the clock skew they pass, beyond it they are refused.
+        assert!(fresh_print(&p, 1_000 - MAX_CLOCK_SKEW_S, 300, -3).is_ok());
+        assert!(fresh_print(&p, 1_000 - MAX_CLOCK_SKEW_S - 1, 300, -3).is_err());
         assert!(fresh_print(&p, 1_301, 300, -3).is_err());
         assert!(fresh_print(&p, 1_000, 300, -5).is_err());
+    }
+
+    #[test]
+    fn test_dry_run_dominates_execute() {
+        assert!(!sends(false, false).unwrap());
+        assert!(sends(false, true).unwrap());
+        assert!(!sends(true, false).unwrap());
+        assert!(sends(true, true).is_err());
     }
 
     #[test]

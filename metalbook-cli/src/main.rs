@@ -381,6 +381,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
             max,
             execute,
         } => {
+            let execute = listing::sends(cli.dry_run, *execute)?;
             let underlying = parse_underlying(underlying)?;
             let index = usize::from(underlying);
             let config = read_config(&mut rpc, &program_id)?;
@@ -459,7 +460,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
                     new.len()
                 )));
             }
-            if !*execute {
+            if !execute {
                 println!(
                     "{} new series; dry run, nothing sent (add --execute)",
                     new.len()
@@ -473,6 +474,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
             Ok(())
         }
         Command::Reclaim { execute } => {
+            let execute = listing::sends(cli.dry_run, *execute)?;
             let signer = signer()?;
             let len = u64::try_from(metalbook_keeper::SERIES_LEN)
                 .map_err(|_| CliError::Usage("series size".into()))?;
@@ -489,7 +491,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
                     closable.push(address);
                 }
             }
-            if !*execute {
+            if !execute {
                 println!(
                     "{} closable; dry run, nothing sent (add --execute)",
                     closable.len()
