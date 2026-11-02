@@ -54,7 +54,7 @@ quotebook-program:
 # against the hashes below; a redeployment changes the hash and fails here, not in the test. A
 # file already present with the pinned hash (CI caches both by hash) is not dumped again.
 PYTH_RPC ?= https://api.devnet.solana.com
-PYTH_RECEIVER_SHA256 := 0d6bf9142c2eb1fdb8ead48054491369bed3a8d6846c5887e362844155599ab2
+PYTH_RECEIVER_SHA256 := 1d6bf9142c2eb1fdb8ead48054491369bed3a8d6846c5887e362844155599ab2
 WORMHOLE_SHA256 := ca237355a04cc5ceeb788853833ae46c0cb8b0a728625e8f9bb9bc05d1e9c619
 .PHONY: pyth-programs
 pyth-programs:
