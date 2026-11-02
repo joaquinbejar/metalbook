@@ -18,7 +18,7 @@ pyth-lite and the series' acceptance rule (`metalbook_core::accept_print`).
 | `close` | partial | 4793 |
 | `close` | to zero | 4793 |
 | `sample_settlement` | first print: slot 0 and fallback, expires the series | 2616 |
-| `sample_settlement` | window slot and fallback | 2621 |
+| `sample_settlement` | window slot and fallback | 2622 |
 | `sample_settlement` | next-print link | 2505 |
 | `settle` | full window (30 slots) | 3176 |
 | `redeem` | 1 long token, in the money | 4062 |
