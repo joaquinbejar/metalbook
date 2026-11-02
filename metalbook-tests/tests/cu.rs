@@ -167,12 +167,36 @@ fn test_cu_table_is_deterministic_and_written() {
     let second = measure();
     assert_eq!(first, second, "CU differ between two fresh runs");
 
+    // `make bench-verifiable` measures the deployed binary (`make verifiable`, built with the
+    // toolchain of the pinned verifiable-build image) and writes its own file.
+    let verifiable = std::env::var_os("METALBOOK_PROGRAM_SO").is_some();
     let mut out = String::new();
-    writeln!(out, "# Compute units").unwrap();
-    writeln!(out).unwrap();
+    if verifiable {
+        writeln!(out, "# Compute units: verifiable build").unwrap();
+        writeln!(out).unwrap();
+        writeln!(
+            out,
+            "The binary `make verifiable` builds (`docs/verifiable-build.md`), which is the one deployed;"
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "`docs/benchmarks.md` measures the `make program` build of the same source."
+        )
+        .unwrap();
+        writeln!(out).unwrap();
+    } else {
+        writeln!(out, "# Compute units").unwrap();
+        writeln!(out).unwrap();
+    }
+    let target = if verifiable {
+        "bench-verifiable"
+    } else {
+        "bench"
+    };
     writeln!(
         out,
-        "Measured by `make bench` (`metalbook-tests/tests/cu.rs`) in LiteSVM, sBPF v3, including the"
+        "Measured by `make {target}` (`metalbook-tests/tests/cu.rs`) in LiteSVM, sBPF v3, including the"
     )
     .unwrap();
     writeln!(
@@ -212,6 +236,14 @@ fn test_cu_table_is_deterministic_and_written() {
         "its CU is measured here; optfix's own SBF costs are in its `docs/benchmarks.md`."
     )
     .unwrap();
+    if !verifiable {
+        writeln!(out).unwrap();
+        writeln!(
+            out,
+            "The deployed binary is the verifiable build; its costs are in `docs/benchmarks-verifiable.md`."
+        )
+        .unwrap();
+    }
     print!("{out}");
     if let Ok(path) = std::env::var("METALBOOK_BENCH_OUT") {
         std::fs::write(&path, &out).unwrap();

@@ -332,8 +332,15 @@ impl Env {
     /// [`NOW`], and nothing else.
     pub fn bare() -> Self {
         let mut svm = LiteSVM::new();
-        let path =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/deploy/metalbook_program.so");
+        // `METALBOOK_PROGRAM_SO` loads another build (`make bench-verifiable` uses the one
+        // `make verifiable` writes); the default is the `make program` binary.
+        let path = std::env::var_os("METALBOOK_PROGRAM_SO").map_or_else(
+            || {
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../target/deploy/metalbook_program.so")
+            },
+            PathBuf::from,
+        );
         let bytes = std::fs::read(&path)
             .unwrap_or_else(|e| panic!("{}: {e}; run `make program` first", path.display()));
         svm.add_program(PROGRAM_ID, &bytes).unwrap();

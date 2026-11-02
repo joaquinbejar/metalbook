@@ -91,6 +91,42 @@ bench: program
 	METALBOOK_BENCH_OUT=$(CURDIR)/docs/benchmarks.md \
 	cargo test $(CARGO_FLAGS) -p metalbook-tests --release --test cu -- --nocapture
 
+# Verifiable build (docs/verifiable-build.md, milestone H2): metalbook-program built by
+# solana-verify in the verifiable-build image pinned by digest, so anyone can rebuild the deployed
+# binary and compare hashes. Needs Docker and `cargo install --locked solana-verify --version
+# 0.5.2`. The image is linux/amd64 only: on an ARM Mac it runs under emulation, where the build
+# hung (2026-11-02), so CI (.github/workflows/verifiable.yml) is where it is built and checked.
+# The binary is copied to target/verifiable, since cargo-build-sbf's target/deploy is shared
+# with `make program`.
+SOLANA_VERIFY_VERSION := 0.5.2
+VERIFY_IMAGE := solanafoundation/solana-verifiable-build:4.3.0@sha256:12fd4c0a0790f0fc41ef74b0cdb6bccc167ba6137eb1adb749bac649481c86bd
+VERIFIABLE_SO := target/verifiable/metalbook_program.so
+.PHONY: verifiable
+verifiable:
+	@solana-verify --version | grep -qxF "solana-verify $(SOLANA_VERIFY_VERSION)" || \
+		{ echo "verifiable: want solana-verify $(SOLANA_VERIFY_VERSION)"; exit 1; }
+	@mkdir -p target/verifiable
+	solana-verify build --library-name metalbook_program --arch $(SBF_ARCH) \
+		--base-image "$(VERIFY_IMAGE)" $(CURDIR)
+	@cp target/deploy/metalbook_program.so $(VERIFIABLE_SO)
+	@echo "verifiable: $$(solana-verify get-executable-hash $(VERIFIABLE_SO))  $(VERIFIABLE_SO)"
+
+# The hash `make verifiable` must reproduce, read from docs/verifiable-build.md.
+VERIFIABLE_HASH = $(shell sed -n 's/^Program hash: `\([0-9a-f]\{64\}\)`.*/\1/p' docs/verifiable-build.md)
+.PHONY: verifiable-check
+verifiable-check:
+	@want="$(VERIFIABLE_HASH)"; got=$$(solana-verify get-executable-hash $(VERIFIABLE_SO)); \
+		[ -n "$$want" ] || { echo "verifiable-check: no program hash in docs/verifiable-build.md"; exit 1; }; \
+		[ "$$got" = "$$want" ] || { echo "verifiable-check: built $$got, docs/verifiable-build.md has $$want"; exit 1; }; \
+		echo "verifiable-check: $$got matches docs/verifiable-build.md"
+
+# Measure the verifiable binary (run `make verifiable` first) into docs/benchmarks-verifiable.md.
+.PHONY: bench-verifiable
+bench-verifiable:
+	METALBOOK_PROGRAM_SO=$(abspath $(VERIFIABLE_SO)) \
+	METALBOOK_BENCH_OUT=$(CURDIR)/docs/benchmarks-verifiable.md \
+	cargo test $(CARGO_FLAGS) -p metalbook-tests --release --test cu -- --nocapture
+
 # Run every test, including the property tests and the LiteSVM tests (which need
 # `make program`, `make quotebook-program` and `make pyth-programs` first). METALBOOK_PROPTEST_CASES=<n> overrides the case count.
 .PHONY: test
