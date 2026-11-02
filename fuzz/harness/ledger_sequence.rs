@@ -432,6 +432,8 @@ impl Case<'_> {
                 let amount = u64::from(amount % 1_000_000);
                 let admin = env.admin.insecure_clone();
                 let vault = self.vault();
+                // A fresh blockhash: two equal donations must not be one transaction twice.
+                self.svm.expire_blockhash();
                 MintTo::new(&mut self.svm, &admin, &USDC_MINT, &vault, amount)
                     .send()
                     .unwrap();
