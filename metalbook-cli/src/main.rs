@@ -6,9 +6,9 @@ use clap::{Parser, Subcommand};
 use metalbook_cli::params::{parse_address, parse_kind, parse_underlying, parse_usd, ParamsFile};
 use metalbook_cli::rpc::Cluster;
 use metalbook_cli::{
-    calendar_json, claim_writer_ix, config_json, create_series_ix, describe, init_config_ix,
-    mint_ixs, read_calendar, read_config, read_keypair, read_series, redeem_ix, series_json,
-    set_calendar_ix, set_config_ix, submit, CliError, SeriesArgs,
+    calendar_json, claim_writer_ix, close_series_ixs, config_json, create_series_ix, describe,
+    init_config_ix, mint_ixs, read_calendar, read_config, read_keypair, read_series, redeem_ix,
+    series_json, set_calendar_ix, set_config_ix, settle_ix, submit, CliError, SeriesArgs,
 };
 use metalbook_sdk::pda::{self, SeriesSpec};
 use solana_instruction::Instruction;
@@ -103,6 +103,20 @@ enum Command {
     },
     /// `claim_writer`: the signer takes its residual collateral of a settled or voided series.
     ClaimWriter {
+        /// The series address.
+        #[arg(long)]
+        series: String,
+    },
+    /// `settle`: fixes the settlement price, or voids the series, once the cascade allows it.
+    Settle {
+        /// The series address.
+        #[arg(long)]
+        series: String,
+    },
+    /// `close_series`: closes a settled or voided series that owes nothing; rent and any
+    /// donation go to the series' rent payer (its USDC account is created first if missing,
+    /// paid by the signer).
+    CloseSeries {
         /// The series address.
         #[arg(long)]
         series: String,
@@ -221,6 +235,30 @@ fn run(cli: Cli) -> Result<(), CliError> {
                 &signer.pubkey(),
                 &parse_address(series)?,
                 *contracts,
+            )?;
+            if cli.dry_run {
+                for i in &ixs {
+                    print!("{}", describe(i));
+                }
+                Ok(())
+            } else {
+                let signature = submit(&mut rpc, &ixs, &signer)?;
+                println!("confirmed {signature}");
+                Ok(())
+            }
+        }
+        Command::Settle { series } => {
+            let signer = signer()?;
+            let instruction = settle_ix(&program_id, &parse_address(series)?);
+            finish(&mut rpc, instruction, &signer, cli.dry_run)
+        }
+        Command::CloseSeries { series } => {
+            let signer = signer()?;
+            let ixs = close_series_ixs(
+                &mut rpc,
+                &program_id,
+                &signer.pubkey(),
+                &parse_address(series)?,
             )?;
             if cli.dry_run {
                 for i in &ixs {

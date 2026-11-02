@@ -149,8 +149,22 @@ Every 60 seconds it lists the program's series (`getProgramAccounts`, 504-byte a
 ticks each one from the start of its averaging window until it is settled or voided. Add
 `--series <ADDRESS>` to restrict it, `--once` for one pass. `--check-post <SERIES>` posts the
 feed's latest print to one series (its fallback candidate) and exits: a check of the whole
-path (Hermes, Wormhole, the receiver, `sample_settlement`) before a window. At startup it closes encoded VAAs this payer left by
-posts that failed after verification.
+path (Hermes, Wormhole, the receiver, `sample_settlement`) before a window. `--exclude
+<ADDRESS>` (repeatable) skips series left to void on purpose: a fallback posted by the keeper
+would settle them instead.
+
+One keeper per payer: the payer is locked with `pyth_post::PayerLock`
+(`~/.local/state/pyth-post/payer-<address>.lock`). Encoded VAAs this payer left open are found
+by the leftover scan (at startup and every 10 passes) and closed once two scans 300 blocks
+apart have seen them unchanged.
+
+Hermes budget: the key is shared with varswap, and metalbook's processes together send at
+most 7 requests a minute. `--hermes-interval-s` (default and floor 12, so 5 a minute) paces
+every request of this process; a second keeper takes 30 (2 a minute).
+
+After every pass that sent anything, the keeper prints one line with the pass's duration,
+transaction attempts (confirmed, failed, attempted serialized bytes and the pass's largest) and
+Hermes requests by status: the baseline the batching milestone is measured against.
 
 ### 6. Exercise the lifecycle
 

@@ -260,3 +260,47 @@ fn the_admin_cli_redeems_and_claims_after_settlement() {
     assert_eq!(shown["state"], "settled");
     assert_eq!(shown["vault_owed_atoms"], 0);
 }
+
+#[test]
+fn the_admin_cli_voids_an_unsampled_series_and_closes_it() {
+    // The Nov 6 drill (docs/PLAN-improvements.md, P3): a series nobody sampled voids from
+    // `hard_deadline + D`, then `close-series` returns its rent to the payer recorded at
+    // `create_series`, creating that payer's USDC account first.
+    let mut env = Env::new();
+    let args = common::SeriesArgs::xau_put(4_000);
+    let series = env.create_series(args);
+    let rent_payer = {
+        let s = read_series(&mut Svm(&mut env), &PROGRAM_ID, &series).unwrap();
+        Address::new_from_array(s.rent_payer)
+    };
+    let caller = env.funded();
+    let settle = metalbook_cli::settle_ix(&PROGRAM_ID, &series);
+    // One second early: the void is not ready yet.
+    env.set_time(EXPIRY + HARD_S + D - 1);
+    assert!(submit(&mut Svm(&mut env), std::slice::from_ref(&settle), &caller).is_err());
+    env.set_time(EXPIRY + HARD_S + D);
+    submit(&mut Svm(&mut env), &[settle], &caller).unwrap();
+    let shown = series_json(
+        &series,
+        &read_series(&mut Svm(&mut env), &PROGRAM_ID, &series).unwrap(),
+    );
+    assert_eq!(shown["state"], "voided");
+
+    let rent = env.account(&series).lamports + env.account(&pda::ata(&series, &USDC_MINT)).lamports;
+    let before = env.account(&rent_payer).lamports;
+    let payer_usdc = pda::ata(&rent_payer, &USDC_MINT);
+    assert!(env.svm.get_account(&payer_usdc).is_none());
+    let mut rpc = Svm(&mut env);
+    let ixs =
+        metalbook_cli::close_series_ixs(&mut rpc, &PROGRAM_ID, &caller.pubkey(), &series).unwrap();
+    submit(&mut rpc, &ixs, &caller).unwrap();
+    // Everything went to the rent payer; the caller paid the USDC account and the fee.
+    assert_eq!(env.account(&rent_payer).lamports, before + rent);
+    assert!(env.svm.get_account(&series).is_none_or(|a| a.lamports == 0));
+    assert_eq!(env.token_balance(&payer_usdc), 0);
+    // A second close finds no series.
+    let mut rpc = Svm(&mut env);
+    assert!(
+        metalbook_cli::close_series_ixs(&mut rpc, &PROGRAM_ID, &caller.pubkey(), &series).is_err()
+    );
+}

@@ -6,7 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `metalbook-keeper --exclude <SERIES>` (repeatable) and `--hermes-interval-s` (default and
+  floor 12 s: metalbook's share of the Hermes key is 7 requests a minute across its
+  processes).
+- `metalbook-admin settle --series` and `close-series --series` (the void drill: `close-series`
+  creates the rent payer's USDC account first, as the program requires it).
+- Per-pass keeper metrics: transaction attempts (confirmed, failed), attempted serialized
+  bytes and the pass's largest, Hermes requests by status (`metalbook_cli::metrics`).
+
 ### Changed
+
+- The keeper's Hermes pacing moves from 10 s to 12 s by default.
 
 - The keeper uses pyth-post 0.1.1: its payer lock is `pyth_post::PayerLock`
   (`payer-<address>.lock` in `$PYTH_POST_LOCK_DIR`, default `~/.local/state/pyth-post`), shared

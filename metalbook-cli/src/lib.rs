@@ -8,6 +8,7 @@
 
 pub mod error;
 pub mod keeper_chain;
+pub mod metrics;
 pub mod params;
 pub mod rpc;
 
@@ -315,6 +316,49 @@ pub fn claim_writer_ix<R: Rpc>(
     let s = read_series(rpc, program_id, series)?;
     let usdc_mint = Address::new_from_array(s.usdc_mint);
     Ok(ix::claim_writer(program_id, writer, series, &usdc_mint))
+}
+
+/// `settle`: anyone, once the series' cascade allows it (`docs/PLAN.md` 4.3); voids the series
+/// when every candidate is empty from `hard_deadline + D`.
+#[must_use]
+pub fn settle_ix(program_id: &Address, series: &Address) -> Instruction {
+    ix::settle(program_id, series)
+}
+
+/// `close_series` of a settled or voided series that owes nothing, preceded by an idempotent
+/// creation of the rent payer's USDC account (the program sends any donation there and
+/// requires it to exist), paid by `signer`. Rent goes to the series' recorded rent payer.
+///
+/// # Errors
+///
+/// As [`read_series`].
+pub fn close_series_ixs<R: Rpc>(
+    rpc: &mut R,
+    program_id: &Address,
+    signer: &Address,
+    series: &Address,
+) -> Result<Vec<Instruction>, CliError> {
+    let s = read_series(rpc, program_id, series)?;
+    let usdc_mint = Address::new_from_array(s.usdc_mint);
+    let rent_payer = Address::new_from_array(s.rent_payer);
+    // Associated token program `CreateIdempotent` (1): payer, account, owner, mint, system
+    // program, token program.
+    let create_payer_usdc = Instruction {
+        program_id: metalbook_sdk::ATA_PROGRAM,
+        accounts: vec![
+            solana_instruction::AccountMeta::new(*signer, true),
+            solana_instruction::AccountMeta::new(pda::ata(&rent_payer, &usdc_mint), false),
+            solana_instruction::AccountMeta::new_readonly(rent_payer, false),
+            solana_instruction::AccountMeta::new_readonly(usdc_mint, false),
+            solana_instruction::AccountMeta::new_readonly(metalbook_sdk::SYSTEM_PROGRAM, false),
+            solana_instruction::AccountMeta::new_readonly(metalbook_sdk::TOKEN_PROGRAM, false),
+        ],
+        data: vec![1],
+    };
+    Ok(vec![
+        create_payer_usdc,
+        ix::close_series(program_id, series, &rent_payer, &usdc_mint),
+    ])
 }
 
 /// The terms of a new series as given on the command line.
