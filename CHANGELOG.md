@@ -13,6 +13,11 @@ All notable changes to this project are documented here. The format follows
   processes).
 - `metalbook-admin settle --series` and `close-series --series` (the void drill: `close-series`
   creates the rent payer's USDC account first, as the program requires it).
+- `metalbook-admin list-week` (a put and a capped call at every grid strike within ±5% of a
+  Pyth print at most 5 minutes old, for one calendar expiry at least `min_listing_s` ahead;
+  existing series skipped; at most `--max` new; dry run unless `--execute`) and `reclaim`
+  (`close-series` on every settled or voided series that owes nothing; dry run unless
+  `--execute`).
 - Per-pass keeper metrics: transaction attempts (confirmed, failed), attempted serialized
   bytes and the pass's largest, Hermes requests by status (`metalbook_cli::metrics`).
 

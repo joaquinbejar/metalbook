@@ -3,8 +3,10 @@
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use metalbook_cli::listing;
 use metalbook_cli::params::{parse_address, parse_kind, parse_underlying, parse_usd, ParamsFile};
 use metalbook_cli::rpc::Cluster;
+use metalbook_cli::Rpc;
 use metalbook_cli::{
     calendar_json, claim_writer_ix, close_series_ixs, config_json, create_series_ix, describe,
     init_config_ix, mint_ixs, read_calendar, read_config, read_keypair, read_series, redeem_ix,
@@ -120,6 +122,38 @@ enum Command {
         /// The series address.
         #[arg(long)]
         series: String,
+    },
+    /// Lists one week's series of an underlying: a put and a capped call (the config's first
+    /// cap offset) at every grid strike within ±5% of a fresh Pyth print (Hermes `/latest`,
+    /// key from `METALBOOK_HERMES_API_KEY`). Prints the plan and sends nothing without
+    /// `--execute`; series that already exist are skipped.
+    ListWeek {
+        /// `xau` or `xag`.
+        #[arg(long)]
+        underlying: String,
+        /// One of the calendar's expiries (default: the first at least `min_listing_s` ahead).
+        #[arg(long)]
+        expiry: Option<i64>,
+        /// Half-width of the strike band around spot, in basis points.
+        #[arg(long, default_value_t = metalbook_cli::listing::LISTING_BAND_BPS)]
+        band_bps: u16,
+        /// Refuse a Pyth print older than this, in seconds (market closed or feed stalled).
+        #[arg(long, default_value_t = metalbook_cli::listing::MAX_PRINT_AGE_S)]
+        max_age_s: i64,
+        /// Refuse to list more than this many new series in one run.
+        #[arg(long, default_value_t = 16)]
+        max: usize,
+        /// Send the transactions (default: print the plan only).
+        #[arg(long)]
+        execute: bool,
+    },
+    /// Closes every settled or voided series of the program that owes nothing
+    /// (`close-series`), returning its rent to the payer recorded at listing. Prints the plan
+    /// and sends nothing without `--execute`.
+    Reclaim {
+        /// Send the transactions (default: print the plan only).
+        #[arg(long)]
+        execute: bool,
     },
     /// Prints a series as JSON.
     ShowSeries {
@@ -339,7 +373,147 @@ fn run(cli: Cli) -> Result<(), CliError> {
             finish(&mut rpc, instruction, &signer, cli.dry_run)
         }
         Command::SeriesAddress { .. } => Ok(()),
+        Command::ListWeek {
+            underlying,
+            expiry,
+            band_bps,
+            max_age_s,
+            max,
+            execute,
+        } => {
+            let execute = listing::sends(cli.dry_run, *execute)?;
+            let underlying = parse_underlying(underlying)?;
+            let index = usize::from(underlying);
+            let config = read_config(&mut rpc, &program_id)?;
+            let calendar = read_calendar(&mut rpc, &program_id, underlying)?;
+            let expiries: Vec<i64> = calendar
+                .expiries
+                .iter()
+                .take(usize::from(calendar.count))
+                .copied()
+                .collect();
+            let now = unix_now()?;
+            let expiry = listing::listing_expiry(&expiries, now, config.min_listing_s, *expiry)?;
+            let feed = *config
+                .feed_id
+                .get(index)
+                .ok_or_else(|| CliError::Usage("unknown underlying".into()))?;
+            let expo = i32::from(
+                *config
+                    .expo
+                    .get(index)
+                    .ok_or_else(|| CliError::Usage("unknown underlying".into()))?,
+            );
+            let hermes = metalbook_keeper::HermesConfig::from_env()
+                .map_err(|e| CliError::Usage(e.to_string()))?;
+            let source =
+                metalbook_keeper::HermesSource::new(hermes, metalbook_keeper::UreqHttp::new());
+            let print = source
+                .latest(&feed)
+                .map_err(|e| CliError::Rpc(e.to_string()))?
+                .ok_or_else(|| CliError::Usage("Hermes has no latest print".into()))?;
+            listing::fresh_print(&print, now, *max_age_s, expo)?;
+            let spot = listing::spot_atoms(print.price, print.expo)?;
+            let tick = *config
+                .strike_tick
+                .get(index)
+                .ok_or_else(|| CliError::Usage("unknown underlying".into()))?;
+            let cap_bps = config.cap_bps.first().copied().unwrap_or(0);
+            let plan = listing::week_series(underlying, expiry, spot, tick, *band_bps, cap_bps)?;
+            println!(
+                "spot {} USD (published {}, {} s old); expiry {expiry}; {} series in the band",
+                listing::usd(spot),
+                print.publish_time,
+                now.saturating_sub(print.publish_time),
+                plan.len()
+            );
+            let signer = signer()?;
+            let mut new = Vec::new();
+            for args in &plan {
+                let (instruction, series) =
+                    create_series_ix(&mut rpc, &program_id, &signer.pubkey(), args)?;
+                let exists = rpc.account(&series)?.is_some();
+                let (kind, cu) = if args.kind == 0 {
+                    (
+                        format!("call cap {}", listing::usd(args.cap)),
+                        listing::CREATE_CALL_CU,
+                    )
+                } else {
+                    ("put".to_string(), listing::CREATE_PUT_CU)
+                };
+                println!(
+                    "{series} {kind} strike {} {}",
+                    listing::usd(args.strike),
+                    if exists {
+                        "exists, skipped".to_string()
+                    } else {
+                        format!("new, {cu} CU")
+                    }
+                );
+                if !exists {
+                    new.push(instruction);
+                }
+            }
+            if new.len() > *max {
+                return Err(CliError::Usage(format!(
+                    "{} new series exceed --max {max}; nothing sent",
+                    new.len()
+                )));
+            }
+            if !execute {
+                println!(
+                    "{} new series; dry run, nothing sent (add --execute)",
+                    new.len()
+                );
+                return Ok(());
+            }
+            for instruction in new {
+                let signature = submit(&mut rpc, &[instruction], &signer)?;
+                println!("confirmed {signature}");
+            }
+            Ok(())
+        }
+        Command::Reclaim { execute } => {
+            let execute = listing::sends(cli.dry_run, *execute)?;
+            let signer = signer()?;
+            let len = u64::try_from(metalbook_keeper::SERIES_LEN)
+                .map_err(|_| CliError::Usage("series size".into()))?;
+            let mut closable = Vec::new();
+            for address in rpc.accounts_of_size(&program_id, len)? {
+                let Ok(s) = read_series(&mut rpc, &program_id, &address) else {
+                    continue;
+                };
+                if listing::reclaimable(&s) {
+                    println!(
+                        "{address} {} owes nothing: closable",
+                        if s.state == 3 { "voided" } else { "settled" }
+                    );
+                    closable.push(address);
+                }
+            }
+            if !execute {
+                println!(
+                    "{} closable; dry run, nothing sent (add --execute)",
+                    closable.len()
+                );
+                return Ok(());
+            }
+            for series in closable {
+                let ixs = close_series_ixs(&mut rpc, &program_id, &signer.pubkey(), &series)?;
+                let signature = submit(&mut rpc, &ixs, &signer)?;
+                println!("{series} closed {signature}");
+            }
+            Ok(())
+        }
     }
+}
+
+/// Seconds since the Unix epoch, from the system clock.
+fn unix_now() -> Result<i64, CliError> {
+    let d = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| CliError::Usage("system clock before 1970".into()))?;
+    i64::try_from(d.as_secs()).map_err(|_| CliError::Usage("system clock out of range".into()))
 }
 
 fn main() -> ExitCode {
