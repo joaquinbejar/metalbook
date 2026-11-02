@@ -9,6 +9,8 @@ repository.workspace = true
 publish = false
 
 [dev-dependencies]
+arbitrary = { workspace = true }
+bytemuck = { workspace = true }
 litesvm = { workspace = true, features = ["precompiles"] }
 litesvm-token = { workspace = true }
 base64 = { workspace = true }

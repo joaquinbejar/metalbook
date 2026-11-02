@@ -12,6 +12,9 @@ repository = "https://github.com/joaquinbejar/metalbook"
 [workspace.dependencies]
 # Versions checked on crates.io (max_stable_version) on 2026-10-29.
 proptest = "1.12"
+# Fuzz harness inputs (fuzz/ and its stable replay in metalbook-tests); 1.5.0 checked on
+# crates.io on 2026-11-02.
+arbitrary = { version = "1.5", features = ["derive"] }
 bytemuck = { version = "1.25", default-features = false, features = ["derive", "min_const_generics"] }
 metalbook-core = { path = "metalbook-core", version = "0.1" }
 metalbook-maker = { path = "metalbook-maker" }
