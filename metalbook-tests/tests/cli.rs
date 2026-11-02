@@ -307,3 +307,71 @@ fn the_admin_cli_voids_an_unsampled_series_and_closes_it() {
         metalbook_cli::close_series_ixs(&mut rpc, &PROGRAM_ID, &caller.pubkey(), &series).is_err()
     );
 }
+
+#[test]
+fn the_admin_cli_week_listing_is_accepted_by_the_program_and_idempotent() {
+    // `list-week` plans from the on-chain config only; every series it plans must pass the
+    // program's grid, cap and calendar checks, and a second run finds them all listed.
+    let mut env = Env::new();
+    let payer = env.funded();
+    let config = read_config(&mut Svm(&mut env), &PROGRAM_ID).unwrap();
+    let spot = metalbook_cli::listing::spot_atoms(4_012_345, -3).unwrap();
+    let plan = metalbook_cli::listing::week_series(
+        0,
+        EXPIRY,
+        spot,
+        config.strike_tick[0],
+        metalbook_cli::listing::LISTING_BAND_BPS,
+        config.cap_bps[0],
+    )
+    .unwrap();
+    assert!(!plan.is_empty());
+    for args in &plan {
+        let mut rpc = Svm(&mut env);
+        let (ix, series) = create_series_ix(&mut rpc, &PROGRAM_ID, &payer.pubkey(), args).unwrap();
+        assert!(rpc.account(&series).unwrap().is_none());
+        submit(&mut rpc, &[ix], &payer).unwrap();
+        assert!(rpc.account(&series).unwrap().is_some());
+    }
+    // Second run: everything exists, so `list-week` would send nothing.
+    for args in &plan {
+        let mut rpc = Svm(&mut env);
+        let (_, series) = create_series_ix(&mut rpc, &PROGRAM_ID, &payer.pubkey(), args).unwrap();
+        assert!(rpc.account(&series).unwrap().is_some());
+    }
+}
+
+#[test]
+fn the_admin_cli_reclaims_only_series_that_owe_nothing() {
+    let mut env = Env::new();
+    let args = common::SeriesArgs::xau_put(4_000);
+    let series = env.create_series(args);
+    let writer = env.writer(4_000);
+    let mut rpc = Svm(&mut env);
+    let ixs = metalbook_cli::mint_ixs(&mut rpc, &PROGRAM_ID, &writer.pubkey(), &series, 1).unwrap();
+    submit(&mut rpc, &ixs, &writer).unwrap();
+    let reclaimable = |env: &mut Env| {
+        metalbook_cli::listing::reclaimable(
+            &read_series(&mut Svm(env), &PROGRAM_ID, &series).unwrap(),
+        )
+    };
+    // Active, then settled with a long and a writer claim outstanding: not closable.
+    assert!(!reclaimable(&mut env));
+    env.settle_with_window(args, &[3_600_000; 30]);
+    assert!(!reclaimable(&mut env));
+    let mut rpc = Svm(&mut env);
+    let ix = metalbook_cli::redeem_ix(&mut rpc, &PROGRAM_ID, &writer.pubkey(), &series, 1).unwrap();
+    submit(&mut rpc, &[ix], &writer).unwrap();
+    assert!(!reclaimable(&mut env));
+    let mut rpc = Svm(&mut env);
+    let ix =
+        metalbook_cli::claim_writer_ix(&mut rpc, &PROGRAM_ID, &writer.pubkey(), &series).unwrap();
+    submit(&mut rpc, &[ix], &writer).unwrap();
+    // Everything paid: closable, and the close succeeds.
+    assert!(reclaimable(&mut env));
+    let caller = env.funded();
+    let mut rpc = Svm(&mut env);
+    let ixs =
+        metalbook_cli::close_series_ixs(&mut rpc, &PROGRAM_ID, &caller.pubkey(), &series).unwrap();
+    submit(&mut rpc, &ixs, &caller).unwrap();
+}
