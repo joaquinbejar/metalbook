@@ -105,13 +105,14 @@ impl Alert {
     #[must_use]
     pub fn runbook(&self) -> &'static str {
         match self {
-            Self::SlotsOverdue { .. } | Self::SettleOverdue { .. } | Self::KeeperSilent { .. } => {
+            Self::SlotsOverdue { .. } | Self::KeeperSilent { .. } => {
                 "docs/runbooks/keeper-restart.md"
             }
+            Self::SettleOverdue { .. } => "docs/runbooks/stuck-settlement.md",
             Self::VoidPending { .. } => "docs/runbooks/void.md",
-            Self::LowBalance { .. } | Self::Leftovers { .. } | Self::HeartbeatUnknown => {
-                "docs/runbooks/keeper-restart.md (failure modes)"
-            }
+            Self::LowBalance { .. } => "docs/runbooks/low-balance.md",
+            Self::Leftovers { .. } => "docs/runbooks/orphaned-vaas.md",
+            Self::HeartbeatUnknown => "docs/runbooks/keeper-restart.md (failure modes)",
         }
     }
 
@@ -529,6 +530,38 @@ pub fn parse_rfc3339_utc(s: &str) -> Option<i64> {
 )]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_every_alert_names_an_existing_runbook() {
+        let a = Address::new_from_array([1; 32]);
+        let alerts = [
+            Alert::SlotsOverdue {
+                series: a,
+                slots: 1,
+                since: 0,
+            },
+            Alert::SettleOverdue { series: a, due: 0 },
+            Alert::VoidPending { series: a, due: 0 },
+            Alert::LowBalance {
+                payer: a,
+                lamports: 0,
+            },
+            Alert::Leftovers { payer: a, count: 1 },
+            Alert::KeeperSilent {
+                keeper: "primary".into(),
+                last: None,
+            },
+            Alert::HeartbeatUnknown,
+        ];
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        for alert in alerts {
+            let path = alert.runbook().split(' ').next().unwrap();
+            assert!(root.join(path).is_file(), "{alert:?}: {path} is missing");
+            assert!(alert
+                .text()
+                .ends_with(&format!("Runbook: {}", alert.runbook())));
+        }
+    }
 
     #[test]
     fn test_parse_rfc3339_utc() {

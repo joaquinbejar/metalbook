@@ -474,6 +474,22 @@ pub fn series_json(address: &Address, s: &Series) -> Value {
         "settle_method": settle_method_name(s.settle_method),
         "settlement_price_usd": format_usd(s.settlement_price),
         "settlement_samples": s.settlement_samples,
+        // The stored candidates and the times the cascade reads (docs/PLAN.md 4.3,
+        // docs/runbooks/stuck-settlement.md): which step can settle, and from when.
+        "candidates": {
+            "window_slots": s.filled_slots.count_ones(),
+            "window_slots_total": s.window_s.checked_div(s.slot_s).unwrap_or(0),
+            "min_samples": s.min_samples,
+            "window_changed": s.window_changed,
+            "next_print_links": s.next_len,
+            "k_next_print": s.k_next_print,
+            "next_print_changed": s.next_print_changed,
+            "fallback_time": s.fallback_time,
+            "fallback_changed": s.fallback_changed,
+            "window_end": s.expiry,
+            "challenge_delay_s": s.challenge_delay_s,
+            "hard_deadline": s.expiry.saturating_add(i64::from(s.hard_deadline_s)),
+        },
     })
 }
 

@@ -262,6 +262,15 @@ fn the_admin_cli_redeems_and_claims_after_settlement() {
     assert_eq!(shown["settle_method"], "window");
     assert_eq!(shown["settlement_price_usd"], "3600");
     assert_eq!(shown["settlement_samples"], 30);
+    let c = &shown["candidates"];
+    assert_eq!(c["window_slots"], 30);
+    assert_eq!(c["window_slots_total"], 30);
+    assert_eq!(c["min_samples"], MIN_SAMPLES);
+    assert_eq!(c["next_print_links"], 0);
+    // The first window print is also the fallback candidate (within the lookback, before expiry).
+    assert!(c["fallback_time"].as_i64().unwrap() <= args.expiry);
+    assert_eq!(c["window_end"], args.expiry);
+    assert_eq!(c["hard_deadline"], args.expiry + HARD_S);
 }
 
 #[test]

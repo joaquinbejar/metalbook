@@ -65,9 +65,10 @@ solana-verify verify-from-repo -ud --program-id FPPuou5kgSp6tbwQRwKPBNhrMyf1Xb8n
 ```
 
 The first prints the on-chain hash, which must equal the Program hash above. `verify-from-repo`
-without `--remote` rebuilds locally (amd64 only, see above) and compares. Uploading the
-verification to the public OtterSec API (`--remote`, which also writes the on-chain verify PDA)
-waits for the coordinator's go. A later program change is deployed from the CI artifact of its
+without `--remote` rebuilds locally (amd64 only, see above) and compares. The public
+OtterSec record (`--remote`, which also writes the on-chain verify PDA) is mainnet-only in
+solana-verify 0.5.2 (checked in its source by quotebook, 2026-11-02), so it is a pre-mainnet
+item (`docs/mainnet-readiness.md`), not a devnet one. A later program change is deployed from the CI artifact of its
 commit, after its hash is recorded here.
 
 | Date | Devnet program hash | Equals the Program hash |

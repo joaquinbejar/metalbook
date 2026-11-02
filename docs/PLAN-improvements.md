@@ -94,7 +94,9 @@ adapt it:
   then check it locally with `solana-verify verify-from-repo -ud`. The upgrade is a devnet
   action, covered by the standing devnet GO. Uploading the verification to the public
   OtterSec API (the remote job and the on-chain verify PDA) is outward-facing, so it waits
-  for the coordinator's go.
+  for the coordinator's go. *As built:* remote verification is mainnet-only in solana-verify
+  0.5.2, so it moved to `docs/mainnet-readiness.md`; devnet already ran the verifiable binary
+  (`docs/verifiable-build.md`), so no upgrade was needed.
 - *Done when* two clean builds produce the same hash, the CI job reproduces it, and the
   devnet program's hash equals it.
 
