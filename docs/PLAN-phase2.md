@@ -1,6 +1,7 @@
 # metalbook: phase 2 plan (devnet operations)
 
-Status: **draft r1**, for codex review. Brief from SOLANA-PROJECTS, bus 51622 and 51663
+Status: **draft r2**, for codex review (r2 answers codex's findings on r1: R1's shared Hermes
+budget, R5's alert timing, R6's immutable outcome records and the close gate). Brief from SOLANA-PROJECTS, bus 51622 and 51663
 (2026-11-03). Baseline: `main` at `275525d`. Devnet only: no mainnet action in any milestone.
 
 **Nothing here is implemented before the Nov 6 drill, and nothing touches the keeper binary
@@ -74,7 +75,19 @@ logic is Rust (pure, tested) and only the launchd plumbing is shell.
   2. **Target expiry**: the first calendar expiry at least `--min-lead-s` ahead (default
      259,200, 3 days) and not before `--min-expiry`.
   3. **Quiet period**: does nothing, before any Hermes request, when `now` is within 2 h of any
-     calendar expiry, so the keepers keep the whole Hermes budget during their window.
+     calendar expiry, so the keepers keep the whole Hermes budget during their window. This
+     avoids contention in the normal case; it does not by itself bound the rate (a keeper
+     backfilling old series outside that span can spend the whole 7), which step 3a does.
+  3a. **Shared Hermes budget** (r2, codex): every metalbook process takes each Hermes request
+     from one cross-process limiter, on the model of varswap's `keeper/src/limiter.rs` (one
+     state file under `flock`, an entry per request counted from admission until a window after
+     it was answered, a 429 blocking all processes 61 s). metalbook's file has its own name
+     (`metalbook-hermes-<fnv1a of the key>`, never the key) and its own limit, **7 a minute**, so
+     it never counts against varswap's 3. The keepers adopt it (after the Nov 6 drill; their
+     `--hermes-interval-s` pacing stays as a floor). The roller only **tries** to acquire: when
+     no slot is free it skips that metal for this run and says so (`hermes budget busy`), and
+     the next run, 6 h later, tries again. So the aggregate is bounded by the limiter, not by
+     timing, and the roller always yields to keepers.
   4. **Multiplier check**: refuses unless the config multiplier equals `--multiplier-milli-oz`
      (default 1,000). A later `set_config` then cannot silently list 50 oz series.
   5. For each metal, runs the same plan as `list-week`: a put and a capped call at every grid
@@ -111,7 +124,11 @@ logic is Rust (pure, tested) and only the launchd plumbing is shell.
   every calendar expiry.
 - **Tests**: pure, on a scripted clock: target expiry across the Nov 27 gap, across a lead
   boundary and past the end of the calendar; the quiet period on both edges; multiplier
-  mismatch; stale print gives skip, Hermes 429 gives failure; both bounds. On a fake RPC: a
+  mismatch; stale print gives skip, Hermes 429 gives failure; both bounds. Limiter, on a
+  scripted clock and a shared temporary directory: a keeper backfilling at its full rate
+  **outside** the quiet period plus a roll run never admits more than 7 requests in any 60 s
+  window (the roller skips with `hermes budget busy`); a process killed while holding a slot
+  frees it; a 429 blocks the roller too; metalbook's file and varswap's never mix. On a fake RPC: a
   second run sends nothing; a run failing halfway is finished by the next one. Negative: no
   expiry closer than `min_listing_s` is ever attempted. Script (`scripts/tests/series-roll.sh`,
   offline with a fake binary, as varswap's): the plist holds no secret (a planted key value
@@ -189,8 +206,15 @@ Closes P2's *done when*.
   label (a plain `kill` would relaunch it), and record its PID before and after. Expected:
   - the second keeper finishes the window and settles every series on the full window, by
     `window_end + D + 10 min` (21:20Z);
-  - `metalbook-watch` raises `KeeperSilent` within 1,800 s, by 21:05Z, and the alert reaches the
-    channel and the coordinator;
+  - `metalbook-watch` raises `KeeperSilent` for the primary once `now − last heartbeat >
+    1,800 s` on one of its polls (`--interval-s` 60). The bound is therefore
+    `last_hb + 1,800 + 60 s + one poll's run time`, not a fixed clock time. The primary posts a
+    heartbeat on every state change, and during the window state changes every pass, so
+    `last_hb` is within a pass (60 s) of the bootout: with the bootout at 20:35Z the alert is
+    expected by about **21:07Z**, and the drill fails this check if it has not come by
+    **21:10Z** (`last_hb` + 1,800 + 60 + a 5 min grace, `last_hb` being read from the channel,
+    not assumed). The alert must reach the channel and the coordinator. That leaves 10 min
+    before the 21:20Z settlement check, and the two checks are independent;
   - no double post, and no failed transaction beyond the benign race in `keeper.rs`.
 - Primary reinstalled afterwards, and it reports itself back.
 - *Done when* `docs/devnet-log.md` has the times, PIDs, signatures, and alert messages, and the
@@ -198,10 +222,16 @@ Closes P2's *done when*.
 
 ## R6. Dashboard section (M; needs varswap's format)
 
-- **Format**: `section.json` version 1 as in varswap's P3a (PR #45, metalbook's ACK recorded at
-  head `4ff067e`), including its per-table `href_columns` for explorer links. Our URL:
-  `https://joaquinbejar.github.io/metalbook/metalbook/section.json`. The schema is vendored from
-  varswap at a recorded commit, which varswap sends when it merges; a test checks our output against it with `serde_json` only (no new dependency).
+- **Format**: `section.json` version 1, on varswap's `main`: schema
+  `docs/dashboard/section-1.schema.json` at `324e161` (#48), shell at `ec30175` (#49), including
+  per-table `href_columns` for explorer links. Our URL:
+  `https://joaquinbejar.github.io/metalbook/metalbook/section.json`; varswap's `sections.json`
+  lists it as `pending` until we publish, and we tell varswap when it is live. The schema is
+  vendored at `324e161`; a test checks our output against it with `serde_json` only (no new
+  dependency). Two shell rules apply: every `links[].href` is absolute `https://` or a relative
+  path with no scheme, no leading `/` or `\`, and no `.` or `..` segment (encoded or before a
+  query or fragment), and the shell marks the section `stale` when `generated_at` is older than
+  48 h, whatever `status.level` says, which the daily run keeps clear.
 - **`metalbook-admin dashboard --out <dir> [--records <dir>]`**: no key, no Hermes request,
   public RPC only (with backoff on 429, `getProgramAccounts` being the heavy read). Pure
   rendering from decoded accounts, so fixtures test it. RFC 3339 is formatted by hand: no new
@@ -221,17 +251,36 @@ Closes P2's *done when*.
   - **`quality`**: `full-window`, `partial`, `next-print`, `fallback`, `void`, `from-log`.
   - **`status`**: `warn` when `watch` has a settle-overdue or void-pending series; `stale` when
     there is no live series for the next expiry while the market is open.
-- **Records**: since `reclaim` deletes accounts, every settled or voided series gets an
-  append-only `records/<expiry>/<series>.json`, written once from `series_json`.
+- **Records** (r2, codex): since `reclaim` deletes accounts, every settled or voided series gets
+  an append-only **outcome record**, `records/<expiry>/<series>.json`. It holds only fields that
+  can no longer change once the series is settled or voided, never the whole `series_json`:
+  - **terms** (`show-series` names): `address`, `underlying`, `kind`, `strike_usd`, `cap_usd`,
+    `multiplier_milli_oz`, `expiry`, `long_mint`, `vault`, and the rent payer from the decoded
+    account;
+  - **outcome**: `state` (`settled` or `voided`), `settle_method`, `settlement_price_usd`,
+    `settlement_samples`, `payout_atoms`, and `filled_slots` and `sample_sum` from the decoded
+    account (`series_json` does not print them today);
+  - **provenance**: the RPC slot and time of the read, and the generator's commit.
+
+  `open`, `longs_outstanding`, `writers_unclaimed`, `vault_owed_atoms` and `residual_atoms`
+  can keep changing after
+  settlement (each `redeem` and `claim_writer`), so they are excluded. When the ledger at close
+  is wanted, the closing job writes a **separate**, equally append-only
+  `records/<expiry>/<series>.final.json` (the ledger read just before the close, which is all
+  zeros by construction, plus slot and signature), and never touches the outcome record.
   - A run that would change an existing record fails with no deploy, as varswap's.
   - **Closing depends on publication**: `reclaim --published-records <base-url>` (R1's step 8)
-    closes a series only if its published record exists and matches the chain. A missing or
-    different record means no close, which costs only the rent in the meantime. `reclaim` with
-    no flag keeps today's behaviour for manual use.
+    and any automated `close-series` (the roller, a script, a workflow) close a series only if
+    its published outcome record exists and its outcome and terms equal the chain's, compared
+    field by field on that stable subset (never the whole series). A missing, different or
+    unreachable record means no close, which costs only the rent in the meantime. A manual
+    `reclaim` or `close-series` without the flag keeps today's behaviour and is explicitly
+    outside this guarantee; the runbooks say so.
   - Oct 30's 23 closed series: seeded once from `docs/devnet-log.md`, `quality: from-log`.
   - **The Nov 6 sheet saves `show-series` output for each void series before `close-series`**,
-    since those are closed before R6 exists; and **no `reclaim` runs from Nov 6 until records are
-    published**.
+    since those are closed before R6 exists; R6 derives their outcome records from those files
+    (provenance: the saved read, `quality: void`). And **no `reclaim` runs from Nov 6 until
+    records are published**.
 - **Publication**: `.github/workflows/dashboard.yml` on GitHub-hosted runners, daily at 22:30Z
   (after Friday's settlement) and by hand, with Pages actions pinned by SHA and permissions
   `pages: write`, `id-token: write`, `contents: read`; no secret. It restores the published
@@ -239,8 +288,11 @@ Closes P2's *done when*.
   It adds no required check. Monthly, a normal PR copies new records to `docs/settlements/`.
 - **Fallback, Pages down**: the command also works locally; nothing closes, per the gate above.
 - **Tests**: fixtures for each state and each `quality`; schema validation; a closed series is
-  still shown from its record; a changed record fails; each gate case for `reclaim` (published
-  and equal, missing, different, unreachable). `make dashboard-check` joins `pre-push` and
+  still shown from its record; a changed record fails; each gate case for `reclaim` and the
+  automated `close-series` (published and equal, missing, different, unreachable). **Lifecycle
+  test**: write the outcome record at settlement, then `redeem` and `claim_writer` (the ledger
+  fields change), then reclaim: the gate passes, the outcome record is byte-identical to the
+  one written at settlement, and only `.final.json` is new. `make dashboard-check` joins `pre-push` and
   `ci.yml`'s want-list.
 - *Done when* the workflow has run on schedule twice, varswap's shell renders our section from
   its Pages URL, one reclaim has closed a series only after its record was published, and the
