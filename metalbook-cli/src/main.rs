@@ -147,6 +147,36 @@ enum Command {
         #[arg(long)]
         execute: bool,
     },
+    /// The weekly roller (`docs/PLAN-phase2.md`, R1): for each metal, the `list-week` shape for
+    /// the first calendar expiry at least `--min-lead-s` ahead, only the missing series, within
+    /// bounds. Nothing within 2 h of any calendar expiry; a closed market or a busy Hermes budget
+    /// is a skip. Prints the plan and sends nothing without `--execute`.
+    Roll {
+        /// Least time to the target expiry, seconds.
+        #[arg(long, default_value_t = metalbook_cli::roll::DEFAULT_MIN_LEAD_S)]
+        min_lead_s: i64,
+        /// No target expiry before this one (Unix seconds).
+        #[arg(long)]
+        min_expiry: Option<i64>,
+        /// Refuse unless the config's multiplier is this, for both metals.
+        #[arg(long, default_value_t = metalbook_cli::roll::DEFAULT_MULTIPLIER_MILLI_OZ)]
+        multiplier_milli_oz: u32,
+        /// Half-width of the strike band around spot, in basis points.
+        #[arg(long, default_value_t = metalbook_cli::listing::LISTING_BAND_BPS)]
+        band_bps: u16,
+        /// A Pyth print older than this, in seconds, is a skip (market closed).
+        #[arg(long, default_value_t = metalbook_cli::listing::MAX_PRINT_AGE_S)]
+        max_age_s: i64,
+        /// Most new series in one run.
+        #[arg(long, default_value_t = metalbook_cli::roll::DEFAULT_MAX)]
+        max: usize,
+        /// Most series listed per metal and expiry, those already listed included.
+        #[arg(long, default_value_t = metalbook_cli::roll::DEFAULT_MAX_PER_EXPIRY)]
+        max_per_expiry: usize,
+        /// Send the transactions (default: print the plan only).
+        #[arg(long)]
+        execute: bool,
+    },
     /// Closes every settled or voided series of the program that owes nothing
     /// (`close-series`), returning its rent to the payer recorded at listing. Prints the plan
     /// and sends nothing without `--execute`.
@@ -480,6 +510,63 @@ fn run(cli: Cli) -> Result<(), CliError> {
             }
             Ok(())
         }
+        Command::Roll {
+            min_lead_s,
+            min_expiry,
+            multiplier_milli_oz,
+            band_bps,
+            max_age_s,
+            max,
+            max_per_expiry,
+            execute,
+        } => {
+            let opts = metalbook_cli::roll::RollOptions {
+                min_lead_s: *min_lead_s,
+                min_expiry: *min_expiry,
+                multiplier_milli_oz: *multiplier_milli_oz,
+                band_bps: *band_bps,
+                max_age_s: *max_age_s,
+                max: *max,
+                max_per_expiry: *max_per_expiry,
+                execute: listing::sends(cli.dry_run, *execute)?,
+            };
+            let signer = signer()?;
+            let hermes = metalbook_keeper::HermesConfig::from_env()
+                .map_err(|e| CliError::Usage(e.to_string()))?;
+            let limiter = metalbook_cli::metrics::hermes_limiter(&hermes)?;
+            let source = metalbook_keeper::HermesSource::new(
+                hermes,
+                metalbook_keeper::LimitedHttp::new(
+                    metalbook_keeper::UreqHttp::new(),
+                    limiter,
+                    metalbook_keeper::Admission::Try,
+                ),
+            );
+            let mut prints = metalbook_cli::roll::HermesPrints(&source);
+            let now = unix_now()?;
+            let mut existing = |rpc: &mut Cluster, metal: u8, expiry: i64| {
+                count_series(rpc, &program_id, metal, expiry)
+            };
+            let report = metalbook_cli::roll::roll(
+                &mut rpc,
+                &mut prints,
+                &program_id,
+                &signer,
+                now,
+                &opts,
+                &mut existing,
+                &mut std::thread::sleep,
+            )?;
+            for line in &report.lines {
+                println!("{line}");
+            }
+            if report.failed() {
+                return Err(CliError::Usage(
+                    "roll: a metal failed (see above); the next run retries".into(),
+                ));
+            }
+            Ok(())
+        }
         Command::Reclaim { execute } => {
             let execute = listing::sends(cli.dry_run, *execute)?;
             let signer = signer()?;
@@ -513,6 +600,23 @@ fn run(cli: Cli) -> Result<(), CliError> {
             Ok(())
         }
     }
+}
+
+/// The program's series of `metal` at `expiry`, in one `getProgramAccounts` call.
+fn count_series(
+    rpc: &mut Cluster,
+    program_id: &solana_address::Address,
+    metal: u8,
+    expiry: i64,
+) -> Result<usize, CliError> {
+    let len = u64::try_from(metalbook_keeper::SERIES_LEN)
+        .map_err(|_| CliError::Usage("series size".into()))?;
+    Ok(rpc
+        .accounts_with_data_of_size(program_id, len)?
+        .iter()
+        .filter_map(|(_, data)| metalbook_sdk::decode::series(program_id, program_id, data).ok())
+        .filter(|s| s.underlying == metal && s.expiry == expiry)
+        .count())
 }
 
 /// Seconds since the Unix epoch, from the system clock.
