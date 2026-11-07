@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-07
+
+Patch release. `metalbook-core` and `metalbook-sdk` have no code change since 0.1.0; their
+crates.io page now shows the current README. Everything below is in the repository's binaries
+and documentation. The program is unchanged and not redeployed.
+
 ### Added
 
 - Runbooks (H4): Hermes outage, RPC outage, low payer balance, orphaned encoded VAAs, a
@@ -76,6 +82,9 @@ All notable changes to this project are documented here. The format follows
   code change: the maker maps every `PricingError` to `MakerError` without matching variants.
   Marks and quotes are unchanged. No crates.io release: `metalbook-core` and `metalbook-sdk` do
   not depend on optfix.
+- README: the Nov 6 void and settlement on devnet, the keeper's batching and RPC chain, every
+  `metalbook-admin` command, `metalbook-watch`, the verifiable build and fuzzing; the Hermes
+  bearer scheme is recorded as verified (also in `docs/devnet.md`).
 
 ## [0.1.0] - 2026-10-30
 
@@ -104,4 +113,5 @@ the pricing adapter, the keeper and the CLI are used from the repository.
 - Devnet deployment (program `FPPuou5kgSp6tbwQRwKPBNhrMyf1Xb8n2ib3Yqpbsuwg`), recorded in
   `docs/devnet-log.md`.
 
+[0.1.1]: https://github.com/joaquinbejar/metalbook/releases/tag/v0.1.1
 [0.1.0]: https://github.com/joaquinbejar/metalbook/releases/tag/v0.1.0
