@@ -1,8 +1,8 @@
 # Keys and roles
 
-metalbook has four roles. On devnet one key holds all of them today; milestone H3 of
-`docs/PLAN-improvements.md` gives each its own key on devnet and writes down the mainnet
-procedure, where nothing is done yet.
+metalbook has four roles. On devnet each has its own key since 2026-11-07 (milestone H3 of
+`docs/PLAN-improvements.md`); this page also writes down the mainnet procedure, where nothing is
+done yet.
 
 | Role | What it can do | Checked by |
 | --- | --- | --- |
@@ -13,14 +13,21 @@ procedure, where nothing is done yet.
 
 ## Devnet today
 
-| Key | Address | Roles |
+| Key | Address | Role |
 | --- | --- | --- |
-| `~/.config/solana/id.json` | `77ieYLKspRnGzAt1AK6ZVsttnTY6T7EY2k7CpTZeCPPV` | upgrade authority, admin, lister, keeper payer |
+| `~/.config/solana/metalbook-devnet-upgrade.json` | `74jZtwqQ1n15ggR4rS3K94a2gZMRtochfPceYHVPF6sJ` | upgrade authority |
+| `~/.config/solana/metalbook-devnet-admin.json` | `5fvjUpFU7faq8rFRcSrPrPb6f6qRGhJzJcWZJk2As7Tx` | `Config` admin |
+| `~/.config/solana/metalbook-devnet-keeper.json` | `DuxGX5znvbiHFHk4rpKmP238zXf5eXTK4xNLN44ecSY2` | keeper payer |
+| `~/.config/solana/metalbook-devnet-lister.json` | `QALJUrTtz1GJDT8oiW9V4DRfPW1BZzFJjQ7kbd9zND8` | lister |
+| `~/.config/solana/id.json` | `77ieYLKspRnGzAt1AK6ZVsttnTY6T7EY2k7CpTZeCPPV` | none: rent payer of the series listed before 2026-11-07, and the funding key |
 
-## Devnet separation (after the 2026-11-06 drill)
+`id.json` is shared with other projects on the same machine; every transaction metalbook signs
+with it is announced on the bus first. Until 2026-11-07 it held all four roles.
 
-Nothing here runs before the Nov 6 window, which uses the current key. Each step's signature
-goes in `docs/devnet-log.md`. Keypair files live under `~/.config/solana/`, outside every
+## Devnet separation (done 2026-11-07)
+
+Run on 2026-11-07, after the Nov 6 drill; the signatures are in `docs/devnet-log.md` (Key
+separation). Keypair files live under `~/.config/solana/`, outside every
 repository and outside the keeper's run directory. Seed phrases and private keys never enter a
 terminal log, a commit, the bus or `docs/devnet-log.md`: only public keys and signatures do.
 

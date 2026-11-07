@@ -35,7 +35,7 @@ a window lets anyone settle a subset of it (`docs/PLAN.md` 4.3, trust assumption
 source ~/.zshrc   # METALBOOK_HERMES_API_KEY; never print it
 export SOLANA_URL=https://api.devnet.solana.com
 export METALBOOK_PROGRAM_ID=FPPuou5kgSp6tbwQRwKPBNhrMyf1Xb8n2ib3Yqpbsuwg
-export METALBOOK_KEYPAIR=$HOME/.config/solana/id.json
+export METALBOOK_KEYPAIR=$HOME/.config/solana/metalbook-devnet-keeper.json   # docs/keys.md
 nohup target/release/metalbook-keeper --interval-s 60 \
   --exclude <SERIES TO VOID> ... >> keeper.log 2>&1 &
 echo $!   # record this PID

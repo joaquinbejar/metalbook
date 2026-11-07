@@ -10,7 +10,7 @@ The first devnet deployment (milestone 7), run on 2026-10-30 from the runbook in
 | --- | --- |
 | Program id | `FPPuou5kgSp6tbwQRwKPBNhrMyf1Xb8n2ib3Yqpbsuwg` |
 | ProgramData | `DSptVxC9DvwxqEK3qY4hTUuHb8K6e6wEbWi9r18XMRVF` |
-| Upgrade authority, admin and payer | `77ieYLKspRnGzAt1AK6ZVsttnTY6T7EY2k7CpTZeCPPV` |
+| Upgrade authority, admin and payer | `77ieYLKspRnGzAt1AK6ZVsttnTY6T7EY2k7CpTZeCPPV` until 2026-11-07; one key per role since (Key separation below, `docs/keys.md`) |
 | Commit | `93f175a46e8e9b9a11bae2bf7fb8cde497a49fa8` |
 | `metalbook_program.so` sha256 | `4b58cb509d38805a1e910ebbae25ebe292186eea45d0965dcaffcc5a4c954127` (90,888 bytes) |
 | Deployed in slot | 516765484 |
@@ -407,6 +407,35 @@ published (`docs/PLAN-phase2.md`, R6).
 | `Dw3skzBfb9S3kBrRnAvSkvGKoZcRbFy178yZ93WSiL1y` | 09:26:12 | `5VCaUTdiLtC3GvoktwhHxew9ptdP2Rk9M6nXRzQHr5a6ZruPFVjah5gP4hiLWVcJMgzskoF7eY8DFMj3oPyF8iX2` |
 | `EfyCdzYUmTY8ie6XtbHpQAgzA1bBZdhC47wK6Ez6JyRU` | 09:26:22 | `4WpzrP8XLGKAT9amBp2eEyiPDD68CTfjfEgtXdaK9iFKPHpnqh39rVCnShXFZ6TAS1ASeRu4XciBTSUQ7KTjzT5t` |
 | `Hs2SMW7Uv5TkPzBpZbLmPNuGepAyrUhmh1FfU6Yxtp9U` | 09:26:34 | `2U4WA5v66SEtugQzpBHUxLg7vPfeDJMVRgtXHSxL5W1KWz6EZueuBo1BrFb4Ue3czc5WrfJhND8z7wtV5f3iLkth` |
+
+## Key separation (H3), 2026-11-07
+
+`docs/keys.md` (Devnet separation), steps 1 to 5. Four new keys under `~/.config/solana/`
+(`solana-keygen new --silent`, mode 0600), funded from `77ie…CPPV`, then the two authorities
+moved off it. Every transaction signed with `77ie…` was announced on the bus first (bus 60630).
+
+| Step | What | Signature | Time (UTC) |
+| --- | --- | --- | --- |
+| 1 | 0.05 SOL to the upgrade key `74jZtwqQ1n15ggR4rS3K94a2gZMRtochfPceYHVPF6sJ` | `2fq1sKEvetNMfVXoWbAjwMEBXcimwADjmzsoYgw3ndJ4NjGGuVffR13vjznyZ9FtQ5Lxk6shHb14hSpB6teBeAzG` | 09:05:24 |
+| 1 | 0.05 SOL to the admin key `5fvjUpFU7faq8rFRcSrPrPb6f6qRGhJzJcWZJk2As7Tx` | `2TegJBvTcWSG7wkDhAtgXDdXqFPNR9yAeDcnTWPmubmcXuG73GfTufY1pMCA5mvz7Tsha1JGWaHPyxcsamgBq7o` | 09:05:27 |
+| 1 | 2 SOL to the keeper key `DuxGX5znvbiHFHk4rpKmP238zXf5eXTK4xNLN44ecSY2` | `2KbE8vKDaGEeCJ83DT2bvQgqqDKMj8wMHXhGzPJDNQqgxbvXDKKEdmmMu8qmddncPAYy8YurkSe8T3xugKAiDKsZ` | 09:05:30 |
+| 1 | 1 SOL to the lister key `QALJUrTtz1GJDT8oiW9V4DRfPW1BZzFJjQ7kbd9zND8` | `nMSwpjxNNh2bWAH5HjVUeLy82g5rmRGSGo69RoihQrauj7HMs3XqEAiKdz2uk6tEwQi1Uvv8joyWonHkW7vC7xk` | 09:05:44 |
+| 2 | `set-upgrade-authority`: `77ie…` to `74jZ…`, the new key co-signing | `28ZH5RErqUcL1EvFz6pW69gBgcgsjne81iRtoXtSJTZEkfYH7eJEHyXM8B1Ka8iWN9gcQgoCYX2oy4MDL2GCtoX1` | 09:06:08 |
+| 3 | `set_config`: admin `77ie…` to `5fvj…`, parameters as read from `show-config` | `389v2nge9nVmGaTvGxKpc9nLFUNSeTVA2rTVuXkFLHBupMTrL3ojVzY2e1f9Tq7vedTy6j8aDzJVuhAsazQ4fpKS` | 09:06:46 |
+
+Check (step 5): `solana program show` names `74jZ…` as the authority; `show-config` names
+`5fvj…` as the admin, and its `params`, `usdc_mint` and `address` are identical to the read
+before the change. The keeper and lister keys appear in neither. Series listed before today
+keep `77ie…` as their rent payer.
+
+## Demo maker funding (phase 2, R2), 2026-11-07
+
+For quotebook's D5 (`docs/PLAN-phase2.md`, R2; bus 60617): the maker `7tVP…cACQ` sent 14.00
+USDC from its USDC account `CTMwGLgvpCBY3oZWaWUrWCjMfkn5VgeMGc5LbhjFL95Q` (0.23 left) to the
+demo maker's USDC account `F7KjgYNYkFK1RLF81yZcfRKq1wEb9wCDDSSrVUPe8Co2` (owner
+`142GM9zKDbdncitgiL6zwdKquwuzzNhMPXwEm1RVYaVB`), the maker paying the fee: signature
+`uQAmw5xnP8Atc4aA29HS3bsF8XXmBemnENznW2gXsvBWCWrAaXYaY6q4EGvQ5r4tWFTmAFdJkGnAkW5zRDZxnvW`
+(09:04:31Z, slot 519608843).
 
 ## Not done yet
 

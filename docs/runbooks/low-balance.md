@@ -23,8 +23,9 @@ is not coming back: look for leftovers (docs/runbooks/orphaned-vaas.md).
 
 ## Fund
 
-From a funded key that holds no role it would lose by paying (on devnet today, the payer
-`77ie…` itself; after H3, the old key, see `docs/keys.md`):
+From a funded key that holds no role it would lose by paying (on devnet, the old key `77ie…`,
+which holds no role since 2026-11-07, `docs/keys.md`; announce on the bus before signing with
+it, since other projects share it):
 
 ```sh
 solana transfer -u devnet --from <FUNDED.json> <PAYER> 2 --allow-unfunded-recipient
