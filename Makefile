@@ -210,9 +210,15 @@ fuzz-fmt-check:
 fuzz-control:
 	@FUZZ_TOOLCHAIN=$(FUZZ_TOOLCHAIN) sh fuzz/controls/run.sh
 
+# Offline tests of the shell scripts (fake binaries, no RPC, no LaunchAgent).
+.PHONY: scripts-test
+scripts-test:
+	@mkdir -p target && sh scripts/tests/series-roll.sh > target/scripts-test.log 2>&1 || { cat target/scripts-test.log; exit 1; }
+	@echo "scripts-test: $$(grep -c '^ok:' target/scripts-test.log) checks passed"
+
 # Pre-push checks: must pass with zero warnings
 .PHONY: pre-push
-pre-push: fmt-check lint lint-control program-control verifiable-control program quotebook-program pyth-programs test doc
+pre-push: fmt-check lint lint-control program-control verifiable-control program quotebook-program pyth-programs test doc scripts-test
 
 .PHONY: clean
 clean:
