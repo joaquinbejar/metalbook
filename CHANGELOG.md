@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- metalbook-maker uses optfix 0.3 (0.3.0 is `max_stable_version` on crates.io, checked
+  2026-11-07; bus 47754, after the Nov 6 drill). Its breaking changes, `rho` in `Greeks` and
+  `Greeks` and `Priced` becoming `#[non_exhaustive]`, need no code change: the maker reads
+  their fields and never builds them, and it uses neither `implied_vol` (the only result
+  that may move) nor rho. `price_and_greeks` and `price_error_bound` are bit-identical to
+  0.2, so marks and quotes are unchanged. No crates.io release: `metalbook-core` and
+  `metalbook-sdk` do not depend on optfix.
+
 ## [0.1.1] - 2026-11-07
 
 Patch release. `metalbook-core` and `metalbook-sdk` have no code change since 0.1.0; their
