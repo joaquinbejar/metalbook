@@ -109,8 +109,9 @@ logic is Rust (pure, tested) and only the launchd plumbing is shell.
   `zsh -c 'source ~/.zshrc; exec …'`, never from the plist or a file. The binary is copied out
   of the checkout. Log rotation by size (10 MB, keep 5, copy and truncate) runs at the start of
   each `run`.
-- **Key**: `~/.config/solana/metalbook-devnet-roller.json`, new (`solana-keygen new --silent`,
-  as `docs/keys.md`), funded with 1 SOL from `77ie…CPPV`. Cost per series from the plan's
+- **Key**: the lister key of H3, `~/.config/solana/metalbook-devnet-lister.json`
+  (`QALJ…zND8`, funded with 1 SOL from `77ie…CPPV` on 2026-11-07; `docs/keys.md`), instead of a
+  separate roller key: listing is that key's only role. Cost per series from the plan's
   facts: 0.00321 SOL for the `Series`, about 0.0015 for the vault, and the long mint's rent is
   not reclaimable. The first run measures the real weekly net and records it.
 - **First install uses `--min-expiry 1795208400` (Nov 20)**: a run before Nov 13 must not top up

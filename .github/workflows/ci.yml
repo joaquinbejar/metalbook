@@ -50,7 +50,7 @@ jobs:
         run: make $MAKE_PINS pre-push
       - name: this job runs exactly make pre-push
         run: |
-          want="fmt-check lint lint-control program-control verifiable-control program quotebook-program pyth-programs test doc"
+          want="fmt-check lint lint-control program-control verifiable-control program quotebook-program pyth-programs test doc scripts-test"
           got=$(sed -n 's/^pre-push: //p' Makefile)
           [ "$got" = "$want" ] || { echo "pre-push is '$got'; update this workflow"; exit 1; }
 
