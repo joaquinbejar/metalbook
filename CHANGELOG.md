@@ -6,8 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A test of the devnet key separation: after the admin is handed over with the parameters
+  unchanged and the upgrade authority moves to a third key, the old key is rejected by
+  `set_config` and `set_calendar`, the upgrade key is not the admin, and the new admin works.
+
 ### Changed
 
+- Devnet keys (H3, part 2): one key per role since 2026-11-07 (upgrade authority, admin,
+  keeper payer, lister), recorded in `docs/keys.md` and `docs/devnet-log.md`; the keeper restart
+  and low balance runbooks use the new keys.
 - metalbook-maker uses optfix 0.3 (0.3.0 is `max_stable_version` on crates.io, checked
   2026-11-07; bus 47754, after the Nov 6 drill). Its breaking changes, `rho` in `Greeks` and
   `Greeks` and `Priced` becoming `#[non_exhaustive]`, need no code change: the maker reads
