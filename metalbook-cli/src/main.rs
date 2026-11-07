@@ -406,8 +406,15 @@ fn run(cli: Cli) -> Result<(), CliError> {
             );
             let hermes = metalbook_keeper::HermesConfig::from_env()
                 .map_err(|e| CliError::Usage(e.to_string()))?;
-            let source =
-                metalbook_keeper::HermesSource::new(hermes, metalbook_keeper::UreqHttp::new());
+            let limiter = metalbook_cli::metrics::hermes_limiter(&hermes)?;
+            let source = metalbook_keeper::HermesSource::new(
+                hermes,
+                metalbook_keeper::LimitedHttp::new(
+                    metalbook_keeper::UreqHttp::new(),
+                    limiter,
+                    metalbook_keeper::Admission::Wait,
+                ),
+            );
             let print = source
                 .latest(&feed)
                 .map_err(|e| CliError::Rpc(e.to_string()))?
