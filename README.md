@@ -14,7 +14,7 @@
 [![PRs](https://img.shields.io/github/issues-pr/joaquinbejar/metalbook.svg)](https://github.com/joaquinbejar/metalbook/pulls)
 [![Solana](https://img.shields.io/badge/Solana-Pinocchio%200.11-9945FF)](https://github.com/anza-xyz/pinocchio)
 
-## MetalBook v0.1.0: Fully Collateralized Metal Options
+## MetalBook v0.1.1: Fully Collateralized Metal Options
 
 ### Table of Contents
 1. [Introduction](#introduction)
@@ -61,13 +61,17 @@ Implemented and reviewed:
 - the pricing adapter (`metalbook-maker`) priced by optfix, with a LiteSVM demo trading a
   long token through QuoteBook;
 - the settlement keeper (`metalbook-keeper`) with its Hermes price source and Pyth receiver
-  posting through Wormhole (M7a, M7b);
-- the client SDK (`metalbook-sdk`) and the admin CLI (`metalbook-cli`, binary `metalbook-admin`).
+  posting through Wormhole (M7a, M7b), batching each print across up to 10 series;
+- the client SDK (`metalbook-sdk`) and the CLI crate (`metalbook-cli`): the binaries
+  `metalbook-admin`, `metalbook-keeper` and `metalbook-watch` (chain-only alerts);
+- a verifiable build of the program (`make verifiable`), cargo-fuzz targets (`make fuzz`),
+  runbooks (`docs/runbooks/`) and the audit scope (`docs/audit-scope.md`).
 
 Milestone 7 is done: the full lifecycle (listing, minting, settlement from live Pyth prints
 through Wormhole and the Pyth receiver, redemption and writer claims) ran on devnet on
-2026-10-30. Released as 0.1.0 (`metalbook-core` and `metalbook-sdk` on crates.io). Pending: the void
-path on devnet (Nov 6).
+2026-10-30. On 2026-11-06 the void path ran on devnet (ten series with no print voided, then
+closed) and the 26 series of that week settled on their full window. Released as 0.1.1
+(`metalbook-core` and `metalbook-sdk` on crates.io).
 
 ### Features
 
@@ -91,8 +95,11 @@ path on devnet (Nov 6).
 #### 4. **Tooling**
 - Rust SDK: a builder for every instruction, PDA helpers and account decoders
 - Admin CLI over JSON-RPC with `--dry-run` and JSON reads
-- Honest settlement keeper with a Hermes price source
+- Honest settlement keeper with a Hermes price source, posting each print once for up to 10 series
+- Chain-only monitor (`metalbook-watch`): overdue slots and settlements, pending voids, low
+  payer balance, leftover encoded VAAs, silent keepers
 - Deterministic compute unit benchmark (`make bench`)
+- Verifiable build (`make verifiable`): the devnet program's hash equals the verifiable build's
 
 ## Architecture
 
@@ -158,7 +165,14 @@ latest eligible print. A failed post is benign only if the series, re-read right
 already holds the candidate (another keeper won the race); any other failure ends the tick
 with an error and **without settling**. Run `tick` more often than `D`. Prices come from a
 `PriceSource` trait (`HermesSource` in production, `TapeSource` in tests) and transactions
-from a `Chain` trait (LiteSVM in tests; the RPC implementation is pending).
+from a `Chain` trait (LiteSVM in tests, `RpcChain` in `metalbook-cli` over JSON-RPC).
+
+`Keeper::pass`, the default of the `metalbook-keeper` binary, plans every series in its
+window at once: candidates with the same signed print are grouped, revalidated with the
+program's rule just before sending, and each print is posted once for up to 10 series; the
+settles are batched too (`--no-batch` ticks each series on its own). The binary paces Hermes
+at one request every 12 s or more (`--hermes-interval-s`), holds a payer lock shared with every
+pyth-post poster on the machine, and closes leftover encoded VAAs.
 
 ### Hermes client
 
@@ -169,8 +183,8 @@ replay fixtures. The API key is read **only** from the environment variable
 `METALBOOK_HERMES_API_KEY` (`HermesConfig::from_env`); it is never read from a file, `Debug`
 redacts it, and errors never carry response content. The auth scheme defaults to
 `Authorization: Bearer <key>`; `METALBOOK_HERMES_AUTH=header:<name>` switches to a named
-header, and `METALBOOK_HERMES_URL` overrides the base URL. The scheme is unverified until the
-first live call.
+header, and `METALBOOK_HERMES_URL` overrides the base URL. The bearer scheme was verified with
+a live call on 2026-10-30.
 
 ### SDK
 
@@ -182,12 +196,24 @@ independent encoding and run a full lifecycle using only the SDK.
 
 ### CLI
 
-`metalbook-admin` (crate `metalbook-cli`) is a thin admin CLI over the SDK: `init-config`,
-`set-config`, `set-calendar` and `create-series`, signed with a Solana keypair file
-(`--keypair` or `METALBOOK_KEYPAIR`) and sent over JSON-RPC (`--url` or `SOLANA_URL`), plus
-`show-config`, `show-calendar`, `show-series` (decoded, as JSON) and an offline
-`series-address`. `--dry-run` prints the instruction instead of sending it. The RPC URL never
-appears in errors, `Debug` or `--help`, and keypair files are never printed.
+`metalbook-admin` (crate `metalbook-cli`) is a thin CLI over the SDK, signed with a Solana
+keypair file (`--keypair` or `METALBOOK_KEYPAIR`) and sent over JSON-RPC (`--url` or
+`SOLANA_URL`):
+
+- admin: `init-config`, `set-config`, `set-calendar`;
+- listing: `create-series`, and `list-week` (a put and a capped call at every grid strike
+  within ±5% of a fresh Pyth print, for one calendar expiry);
+- writers and holders: `mint`, `redeem`, `claim-writer`;
+- settlement and cleanup: `settle`, `close-series`, and `reclaim` (`close-series` on every
+  series that owes nothing);
+- reads: `show-config`, `show-calendar`, `show-series` (decoded, as JSON) and an offline
+  `series-address`.
+
+`--dry-run` prints the instruction instead of sending it; `list-week` and `reclaim` only print
+their plan unless `--execute`. The RPC URL never appears in errors, `Debug` or `--help`, and
+keypair files are never printed. The same crate builds `metalbook-keeper` (see
+[Keeper](#keeper)) and `metalbook-watch`, which reads every series, the keepers' payer balances
+and heartbeats, and needs no Hermes key and no signing key.
 
 ### Quoting through QuoteBook
 
@@ -209,9 +235,9 @@ redemption.
 | `metalbook-program` | The Pinocchio program (`cdylib`). |
 | `metalbook-tests` | LiteSVM tests of the program, the QuoteBook demo, the CLI tests and the CU benchmark. |
 | `metalbook-sdk` | Instruction builders, PDA helpers and account decoders. |
-| `metalbook-cli` | `metalbook-admin`, the admin CLI. Devnet parameters: `metalbook-cli/devnet-params.json`. |
+| `metalbook-cli` | The binaries: `metalbook-admin` (the CLI), `metalbook-keeper` (the keeper over JSON-RPC) and `metalbook-watch` (chain-only alerts). Devnet parameters: `metalbook-cli/devnet-params.json`. |
 | `metalbook-maker` | Off-chain pricing adapter: payoff aware marks behind a `VanillaPricer` trait (`OptfixPricer` over optfix), two sided quotes rounded toward the maker, and quotebook quote terms. |
-| `metalbook-keeper` | Off-chain settlement keeper and Hermes price source. |
+| `metalbook-keeper` | Off-chain settlement keeper (`tick`, batched `pass`) and Hermes price source. |
 | `lint-control` | Failing control proving the workspace lints reject panicking macros (shared with optfix, quotebook and varswap). |
 
 ## Collateral Model
@@ -358,6 +384,12 @@ call: `redeem` [`5tWoFRk7…`](https://explorer.solana.com/tx/5tWoFRk7GEmLA8RNzH
 paid 1.184986, `claim_writer` [`5qEJqQ2P…`](https://explorer.solana.com/tx/5qEJqQ2Pny4PgqvwiGGS63t6z9Zv9ptHNGqiwpXaLS9nH7hNNH3FGa2QX7rpv2EB1dBVBnH7wmfPELnyp5E42ZW4?cluster=devnet)
 returned 3.615014), so a full lifecycle ran on devnet against live Pyth prices.
 
+On Nov 6 the ten Oct 30 XAG 50 oz series, left without any print on purpose, were voided at
+the hard deadline `+ D` and closed, returning their rent. The 26 Nov 6 series (16 XAU, 10 XAG)
+settled on the full window, 30 of 30 samples: XAU at 4065.3453 and XAG at 51.951246, with the
+keeper stopped and restarted inside the window. The deployed program's hash equals the
+verifiable build ([`docs/verifiable-build.md`](docs/verifiable-build.md)).
+
 ### Reproduce it
 
 Against `https://api.devnet.solana.com`, with a funded keypair outside the repository:
@@ -408,7 +440,7 @@ metalbook-sdk = "0.1"
 ```
 
 The program, the pricing adapter, the keeper and the CLI are used from the repository
-([release v0.1.0](https://github.com/joaquinbejar/metalbook/releases/tag/v0.1.0)).
+([release v0.1.1](https://github.com/joaquinbejar/metalbook/releases/tag/v0.1.1)).
 
 ## Usage Examples
 
@@ -477,6 +509,8 @@ Fetches one XAU print and exits with status 2 and a clear message when the key i
 make pre-push   # fmt check, clippy -D warnings, lint and program controls, SBF build, all tests, docs
 make test       # unit, property and LiteSVM tests (needs both programs built first)
 make bench      # regenerate docs/benchmarks.md
+make fuzz       # cargo-fuzz targets, time boxed (nightly toolchain)
+make verifiable # the program built with solana-verify (Docker, amd64); see docs/verifiable-build.md
 ```
 
 Tests: proptest for the core math (collateral covers the maximum payout and the vault empties

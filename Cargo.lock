@@ -2554,7 +2554,7 @@ dependencies = [
 
 [[package]]
 name = "lint-control"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "linux-raw-sys"
@@ -2714,7 +2714,7 @@ dependencies = [
 
 [[package]]
 name = "metalbook-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.23.1",
  "clap",
@@ -2737,7 +2737,7 @@ dependencies = [
 
 [[package]]
 name = "metalbook-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytemuck",
  "proptest",
@@ -2745,7 +2745,7 @@ dependencies = [
 
 [[package]]
 name = "metalbook-keeper"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.23.1",
  "metalbook-core",
@@ -2757,7 +2757,7 @@ dependencies = [
 
 [[package]]
 name = "metalbook-maker"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "metalbook-core",
  "optfix",
@@ -2771,7 +2771,7 @@ dependencies = [
 
 [[package]]
 name = "metalbook-program"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytemuck",
  "metalbook-core",
@@ -2785,7 +2785,7 @@ dependencies = [
 
 [[package]]
 name = "metalbook-sdk"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "metalbook-core",
  "solana-address 2.7.0",
@@ -2794,7 +2794,7 @@ dependencies = [
 
 [[package]]
 name = "metalbook-tests"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arbitrary",
  "base64 0.23.1",
