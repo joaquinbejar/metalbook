@@ -29,7 +29,6 @@ use metalbook_cli::{create_series_ix, read_config, AccountInfo, CliError, Rpc};
 use metalbook_keeper::PrintMsg;
 use solana_address::Address;
 use solana_keypair::Keypair;
-use solana_signer::Signer;
 use solana_transaction::Transaction;
 
 /// [`Rpc`] over the LiteSVM of an [`Env`]; with `fail_after`, every send after that many
