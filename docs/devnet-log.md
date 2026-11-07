@@ -166,7 +166,8 @@ series; all 23 series it ran on settled on the **full window** (method 0, 30 of 
 | XAG | 49.184986 | 7 |
 
 Cross-check at 20:15Z: Pyth `/latest` XAU 3882.91, an independent spot quote 3883.50. The ten
-50 oz XAG series got no posts and are left to void after `hard_deadline_s` (7 days).
+50 oz XAG series got no posts and are left to void after `hard_deadline_s` (7 days); they were
+voided and closed on Nov 6 (below).
 
 | Series | Terms | Settled (UTC) | `settle` signature |
 | --- | --- | --- | --- |
@@ -232,8 +233,181 @@ orphan scan closed the other's in-flight encoded VAA, so three posts failed with
 receiver's `WrongVaaOwner` and were retried (one payer per keeper from now on). Throughput
 was bound by devnet confirmations, about 6 slot posts a minute.
 
+## Nov 6 drill: void, baseline and restart (P3)
+
+`docs/PLAN-improvements.md` P3, run 2026-11-06 with the binaries of `main` at `275525d`
+(`metalbook-admin`, `metalbook-keeper`), copied to `~/tmp/worktrees/metalbook/keeper-run/`
+outside the repository, payer `77ieYLKspRnGzAt1AK6ZVsttnTY6T7EY2k7CpTZeCPPV`. The void and
+restart runbooks (`docs/runbooks/void.md`, `docs/runbooks/keeper-restart.md`) were followed
+as written; the one addition was saving each void series' `show-series` output before its
+close, for the phase 2 records.
+
+### The void path: the ten Oct 30 XAG 50 oz series
+
+Expiry 1793390400, so the void opened at 1793995800 (20:10Z). Before the drill all ten were
+`active`, with `open` 0 and no candidate: no keeper had ticked them, so the cascade had
+nothing to settle on. `settle` was sent at 20:10:30Z and gave `state` `voided`, `settle_method`
+`void` and 0 samples on each. `longs_outstanding` and `writers_unclaimed` were 0, so step 3
+of the runbook was empty and `close_series` followed at once. Each close returned 0.004699 SOL
+of rent (0.004694 net of its fee), 0.04694 SOL for the ten; with the ten `settle` fees the
+payer gained 0.04689 SOL. No error and no retry.
+
+| Series | Terms | `settle` (void) | `close_series` |
+| --- | --- | --- | --- |
+| `7WStW2SFVLeeTYrBCMszTZLgMkgDH2YJRABEHR7iiTao` | XAG put 48, 50 oz | `5cB85FQC8DNYGpkM4ZC1r1q1RRMx6LhxpbGpSqJQKSCDhHsWhSEgndsPMoRDXkCuHRDSD8Tkr7RKa3x5tg2A2rW2` | `2jkm6H8fLYn6iCdJ4kyXRZsMHefJwhAcSYQRuoE44NYNEm4dcWaGkXEhNLteARyrBYje7jEbGb5nKobcJvAYmt5` |
+| `7EUNY3M7579s2M4UnmDS7QscJK61a5rrpPN9WQNn5wVw` | XAG call 48 cap 52.8, 50 oz | `64xReQd5rXYzWjpAgWZYQgk2HXyiKPqA2kPPvB1tLRTqMnj5s2gT4Sw4Kjv8sUSRS1FYAd17ewBY31mMwiN4Zknx` | `3bZHvzqKWSCSnde6H9Huj3a16KewGEx8Vxf8BN6f9CJBvhy8H5Bn1TRKFYukJvzBKXtDmbQpZ3wPZUvU8EW5Uohg` |
+| `7gDF4kJGSQMzHcqoWB3FVqEvV8AuHH53JC5r1jBRN377` | XAG put 49, 50 oz | `2cEoTMERzrx91Q9y8szP9zaeCAcAW9KDm2hXRrELrvwrkrGxgipXpQqivb7Q7H1ptP2remY7iyhm83ukM7WqZ4kz` | `39CiGtVL1SZDwqNezcwZ1C3VQkWtLHL7UDKbmGqNPPFvo8KPmnFLfiY8Syt4675YozDUHkcUWmV8rsxj7kqSJwx4` |
+| `HbovhXFHPTJDj3EkCiEyzaSKsXCocxH5ot5djtcGERLW` | XAG call 49 cap 53.9, 50 oz | `3VuTVXUCZuZNViue4Be3wxRwm8CkvjcKzk7dTYmf5LzNPuJTsQA1ftjhdGVfHDttgj3hG9gu2xC6XmM5VTdw7HeL` | `4hdFR6jnzWgaXXax2RqQsQTXTc6X4XnikRiuP1RQX5QXXrgQrtaWGKyEVShWNUmtBhhQPqNEHXKvCpp6oK4siZew` |
+| `4F2hdKE6gJ7TvMBq14pWgsBfKb3VxhTNA96CbYkqsWHn` | XAG put 50, 50 oz | `57RNqoHgi9rnf8EdV4UGscAitsNPViM2pC6JAaHqoRP7bpu4ZoTCXhBBDZTiGDYa3uEj7xNs3Q9SMvXKf9zgzNh5` | `2h2oKFhcFVkDGR5dYTsGM6Sb8k6585KWGDZRM3oGthTyR5AAiWKu6LtypqSS1PYXNFj7wikccLtotuvbEZNMsMaD` |
+| `84uyQjzN6MkRi7XCx8q1xEqqhQFYavRAt119jMXXn4BY` | XAG call 50 cap 55, 50 oz | `3FP8xLPnRSGL4JTQgWxVYHM4bed93KAnGTXnZcWiWnFgkwXG9g27SP47Sa71jbMdGs17cspGgg1PedRuRwXfA2J2` | `41Z44peNejYYZ9RuR1oEaQjh17mq7LEDTcxtapC4WxZwPFj9145MM7BhZpZLHZVRNcdd9PE2bkYn7W7TRVpdeEWw` |
+| `GZz1xtQKoUjAj7v3x63PBgCDv1UexqdmK25HuyDqzmWJ` | XAG put 51, 50 oz | `3XikAp5M7APzBQbUUmEaroj8rKCxSvgCrd6RiZsRPGDpQh2sqwn3ubBySBWQYQcmjX3HMd38CzZPELdKYi91k3Km` | `2VY5uY8d6uvNJiZbRALf21tzHifnDBbXvXnkBKCeAxxfH6fdZXnr12FXeW1iBsv4ZjKANMsFymWBMpFSA7xrQKx5` |
+| `Ew94BcV7MYXiNx77yooBXteEe4XsxykZodU7Xg5MkpPD` | XAG call 51 cap 56.1, 50 oz | `38PgLxQPJ8XjVohZAzYunHRHvxobraMSf1J62PFEnYayfBJT3E9AYQ7sYnqSW4k1FxAXK52FZyhZfX99s39kKM6R` | `5gcDoMkdaDWyPCXw7nFYDc1krvHtvp1NgoN3avAcMw9ERQchKe2jjBALeda5EFibHytHKe5Vx6eVNkWhPzBzvZKV` |
+| `6SYM398CRzH6j2u9gikyGCrSeRtdR3QK3pCCkrMFik31` | XAG put 52, 50 oz | `5Xv6QRmBacjfv2y4EQ13bxCCVz1qtmkESrTfGi9CTXi78XkyURvbKAHBaU43t4gWZkRfRnyYngSwegmqpbFEHEmg` | `42ZEvbmfJysjPKvMW3q81pAzbnyhb1VWyaQsXassQr1FURez4Zokm1NEhJuPbu4z2BLXzCdUkgFRFXwZv8SetiEq` |
+| `Df5oVmx94PJM5BQEmk2QeWr7DEgaHaZ8TpBwzyDfaMX` | XAG call 52 cap 57.2, 50 oz | `4PHeJhSD83FMrcEdxJdm6gMY2RAUH8o36JU4qhxXtPCp2wUPwk3XDHZ4rycSgLUKs6WXVDLAEGdiUNtGmrUbhDyd` | `67c2nBrpRhAw53F3tFv2g3ZYB1ZHW5XeT7ANEyf7NF7JtAEkaiVkx4miKFoSWhFtjUBxp4sH8nvFX52vRfWJqzfx` |
+
+### Baseline: the 26 Nov 6 series, unbatched
+
+Expiry 1793998800 (Nov 6, 21:00Z), window 20:30Z to 21:00Z. 16 XAU and 10 XAG series, all
+1 oz, none written (`open` 0), so no redemption or claim follows. The keeper ran unbatched
+(`--no-batch`, the shape before P1), `--hermes-interval-s 12`, `--interval-s 60`, with an
+explicit `--series` list of the 26 and `--exclude` for the ten void series.
+
+Every series settled on the **full window**, method `window`, 30 of 30 samples:
+
+| Metal | Settlement price | Series |
+| --- | ---: | ---: |
+| XAU | 4065.3453 | 16 |
+| XAG | 51.951246 | 10 |
+
+Throughput is the finding. One post per series and slot (780 slot posts, plus the next-print
+links and fallbacks) ran at about 3.5 posts a minute, bound by devnet confirmations, so only
+112 slots were on chain when the window closed and 12 series had none. The keeper kept
+backfilling (a slot can be posted after its time), and nobody else settled, so no subset was
+settled early. First `settle` 21:10:11Z, which is `window_end + D`; last 23:40:31Z: **3 h 10 min
+from the first post (about 20:30Z) to the last settlement**, against the 30 min window.
+
+| Measure | Value |
+| --- | --- |
+| Transactions, restarted process (passes 1, 2 and 11) | 2,682 sent, 2,682 confirmed, 0 failed |
+| Bytes attempted (restarted process) | 1,627,694; largest transaction 871 bytes |
+| Longest pass | pass 1, 9,358.5 s (2,360 transactions) |
+| Hermes requests (restarted process) | 100: 98 answered 200, 2 connection resets (retried next pass), 0 × 429, 0 × 404 |
+| SOL spent by the keeper | 0.02612 (payer 66.1221382 after the void, 66.0960178 at the end) |
+| Encoded VAAs left open | 1, closed by the leftover scan; 0 open afterwards (`getProgramAccounts` on the Wormhole program with the payer as write authority) |
+
+The pre-restart process posted 46 slots and was stopped mid-pass, so its transaction count
+was never printed; the table counts the restarted process only. This is the baseline P1's
+batching is measured against on Nov 13 (24 series: 3 posts per print instead of 24).
+
+| Series | Terms | Settled (UTC) | `settle` signature |
+| --- | --- | --- | --- |
+| `E7Zc7AWvVceMBmBbJmTuCVY7tBNVnv8hyxmBgLR1wMcT` | XAG call 48, cap 52.8, 1 oz | 22:14:02 | `5ZU6QEF3EFDSBowjbNkM25BD4EjwEfspRrw8UDUZXbgKEUbSPx7FGEygdcAWxQi4uXUtbJXaKq8jam76Hjqp3T3i` |
+| `DtUqKLmUUKru8x5GFeTFzCdJV3d3F2SmUMSnUMY6Mtad` | XAG call 49, cap 53.9, 1 oz | 22:06:55 | `5sCaFVAtfhRyCPwXJYSf9vMnQ2iQ6n4f2kbnFbSFRrsA8bDuHJjh2bvqVVajmUJvwW25J5D6DLrE7azJHKYYrQiH` |
+| `APeCe4xH4ZzRCztsQADvE7GvLW3GeoNN9fRtEKmBAtpF` | XAG call 50, cap 55, 1 oz | 21:41:56 | `5zYuatMNSKUhBkGE1Bzrch8tyrkXQ33JTHTyrKq65HVfxAM8xFmtdFsh3E1jRgGvQvPi2JhnovG2Rti9HdC5ArtL` |
+| `DNptrDVZaA1ZKEFRNgtLTUo39qP1DJBfT6Mo85zQo2XD` | XAG call 51, cap 56.1, 1 oz | 21:59:22 | `5PqEFCdC2PFx6RoKk3fV6rQiioeKezfmBLLDF1SFQbrtUfbmytD1TYKTfx5UCBiLATqRB6PhBiU4YSA5RYedVnhg` |
+| `3BBBDnkZ9Xkab4tu9wcVd2C2msXtYaweCNoBS94qG8FJ` | XAG call 52, cap 57.2, 1 oz | 23:31:36 | `616NADDop4Hkfa72a63E7my3aa9Komn8HLMpe5M9Qc73umXhamj8VX5cs2PMcAYbMuTc3LTRzLEFsUJykswnPPTE` |
+| `FrNnxxpsR3F16UNWCbVBg8w1LghQ4RQ9DzPfCVGN8CdE` | XAG put 48, 1 oz | 22:35:21 | `Di76FnVhGG9HWizpuxbgBWxEBBTzU52RxY12PksNm371oc1jDKSn7bex8ZpcHMDL6ibmNAxj5D38VX4hoQXBXVj` |
+| `FTBigV5stJQoDYP6TFyNkeB269D98URY6rqAX5D1sKxq` | XAG put 49, 1 oz | 22:28:22 | `dCUsfLTf41uk5XiVjrKhdyprxNhTvDEcdMLBrZT863KGiw7HGsCrBGkKFFp38UTWsgBTKGgon5TdnuAhbtDwAmy` |
+| `3j3aGowHkH2yHKmYV2TsmBETRmkTwaBcsxzhpKjNSduy` | XAG put 50, 1 oz | 23:37:30 | `qX4KBDgpmXe4XzJjyPWBCUTQmZBMmGoJHs4MQGU8mccFo7nzoWiwFsf9w8FwEN6C95dvoptXoHGP8sZm84Ea6tq` |
+| `HayZ7fGLaLjCNFkybCoo42rAG3TdtnhGhcibjYhmtXj6` | XAG put 51, 1 oz | 23:11:34 | `52fAeS5NDT4mngc3JBAu1hT2frQWYnXwNfTdj2DrnytzvaY2MHmqUcYbrtnzi9aEbxS5h54v8Jh1ccMHCfNnhjuj` |
+| `92sL1UdGxDkRMtX9sN4f4TSKDpczVuPpHyY4vCKg5ado` | XAG put 52, 1 oz | 21:29:48 | `4rM1MtvTR81jo7NgzeCmjzWLwu1Z8LukyF4pFHs1fCFvrnktnxqPPuuajiAi1hxXDK4Cxcxx8q6yA1DjKjMHftqH` |
+| `3F7YhT2Qfx5ASHfYNyHyuefZqbD4YvTE47caa9Fz6uWr` | XAU call 3800, cap 4180, 1 oz | 23:35:19 | `4GksYax3vehfmxXMkUKNUM3fbajPXD7tNgUr6eCaPeWjQkD2Vn7QoyDhGgPgGfDmVLYfAEHxXWnRiTWaJFp8dYUY` |
+| `F4katJN6EAMXoHmUTn3jABafiRk8XgxoY5jQPjfhBTVZ` | XAU call 3850, cap 4235, 1 oz | 22:21:16 | `2uAeDFHMViGaEdx1KUF6jaNfpwLxj9Dzn3QkpgjGy7hqdVQGvsXKVTCq8ZqdwWcgMb2SFyBkZ82ubWVSnJwFak38` |
+| `27eiwcTSHQ9HmnFeP1pax6oDUsoW3wx53S87FkRoSwBE` | XAU call 3900, cap 4290, 1 oz | 23:23:50 | `vcteh3g89BWM417mCrxWNiHeb2EQpyeDEh56nLpkSqkphDk79uf24zCQ9wmwy3gKu9whHBJzS6kx3m1AfR5J5M9` |
+| `Fvv4V15kn97QNjPXWtKmNi4ThctfjcfmNzknuSjMGiDc` | XAU call 3950, cap 4345, 1 oz | 22:42:20 | `5aEJfJaZW8a213HqgFm8nnszgQJ4hPtXUrRyQU3WJksVU9pv3oZ5miC3dtHkuCGUCyLfGVMFG2w9HKKUbL97bTXY` |
+| `B1eem5xBx3cbvzwqnGZTu118wYTp5UgsJAkWRuKevf2Y` | XAU call 4000, cap 4400, 1 oz | 21:47:49 | `4d9AA1KvZcmdXSC94fjq1seLGqEDwFqtSUySuvSSmTjEdqqD4qjWExCtTgZy3HboqxMLZa7E2EewRDUReYMhuWt1` |
+| `H1JxmmcEKB9AjXcx9nvrdnoBJSBwtvtYR4GiHQJBeXai` | XAU call 4050, cap 4455, 1 oz | 23:04:21 | `5JWSCJaFNQQvnP9TrC3LcaqrWyJtc7dJhffxei8EnV7RJMFS3eoYBToGPU8WZMFCsX1BgWgXmh3TTstJENeEKjf6` |
+| `2Z1jgp22bhhskNKAzZyu55y1QkWaAsrLuQqZyJKoiaHw` | XAU call 4100, cap 4510, 1 oz | 23:28:02 | `9Ph2okboYxy1B6hLBYbSLqFqa4TsWCXH9VA4g5CYgeqJaAXrwuRSjkFQLU7ddjLV8TJBvGDCqpD75K1VuqwXDB7` |
+| `9zMAutEb6fKswJE5HGZ6xJRh3ttk8p2soMGgxcsf3vZe` | XAU call 4150, cap 4565, 1 oz | 21:36:04 | `43PefRLt94SzJ2iTizhoYx4B8X3abDy5A7BpWL4bupaPeeSxqrwHTr4ZnNHxXKXmHdUtZCWuzpd3c8XgsaB3VG4x` |
+| `JAUr2AcDZq1YH11fBjmKwu2FQVKm6Jh1h2V6r4exy5iS` | XAU put 3800, 1 oz | 23:18:21 | `5etL77QbQgS49t7W1c7h6FV1YUXbU7448C9ZTV6QEBy9vTHZnpMAmG8Q8EsHskkWPvphrxq9NLpJo5BEAbQs8gNs` |
+| `8qTijtsquv5DEf3UJzwCYM4xnvtvJBKBtR2X3UVjr6QY` | XAU put 3850, 1 oz | 21:23:25 | `447WtrHTgsPcSqcqjhBrDZ5iQRPbiGQ5BS49HWbUcurQHWBk1gFYKyJu28x7eScmQX8SGvSKDnjB7EDqG7WW1inW` |
+| `GCbeoaTa1yF4azv8hakR8jQ5CGVwmm6HmfHJ15SBRxbt` | XAU put 3900, 1 oz | 22:50:06 | `5w3CnQjbvYJhauviivjPtD83ejA14MQXzKpyLtvFfMkeBPe5P12rHswmPh7c5TpfWdeQapKGCwpXLrE8wX7xtfqk` |
+| `B3PYLRhWcCcnBnCcPUK4AkMfxYLTuBkvCQyykcDwYkFm` | XAU put 3950, 1 oz | 21:53:26 | `2h7m8YHv42XdL1GZSHNrzdY8iVznPBYnrh2wFgLM3rcrypbJo29QXnE2v4zuJnXysNUzBXcgp3vcoB3a6mCndxa9` |
+| `6VzDx2mJzMTf3w9s3VBrtJu6XtV2N1Nv56uMwpZyF5gY` | XAU put 4000, 1 oz | 21:16:54 | `249afCDwyrGEXRKMGHj36BrdXXuDVNcVUKgS3JsYCwkKwDkA8hVdKdwyq4uFhpxoJWEqn28PP2ju9Fi7itN2VoWn` |
+| `6FTcwQTKJH2TPWgN2Ch4G7fbj3hKSEQJK3fAkzM1s6xR` | XAU put 4050, 1 oz | 21:10:11 | `2S9fD2dngoGftUQAECUwsE7VAzNPYhFTNTzfsWsGmnT8rz4S4nVrCeuhUtMtTmDiejcjZyodHJ2C5LKWxsKa9rt9` |
+| `46FMipQsjAAjFjUBYRThXR93sYDXKCGck4jDPKuFxQNq` | XAU put 4100, 1 oz | 23:40:31 | `5FLt58d1aBgGSAzvYg7WEYk37qCSpPQ1G43mWDuDcpFxbyovQCH9UFHwQk7oWpGPGXk87P2vmUFqF8qkBCBJTwZJ` |
+| `GxFr9AHmARD2PNev8k5aRN7cG22VNzboGU5yQhm5mc8w` | XAU put 4150, 1 oz | 22:57:11 | `31w7cWJMqBV3uJejz9ToDfdkZPDGg4FhniWZjwdNNGDkcnGUeQX2jVjjeWZve9pE2irxUc1XiHmxN7S13LGtPVs5` |
+
+### Restart drill
+
+| Step | Time (UTC) | PID |
+| --- | --- | --- |
+| Keeper started | 20:24:05 | 49339 |
+| `kill 49339` (checked with `ps -p` first) | 20:40:20 | 49339 |
+| Restarted with the same flags | 20:42:22 (122 s down, under `D` = 600 s) | 81149 |
+| Stopped after the last settlement | 2026-11-07 02:04:11 | 81149 |
+
+Checks from the runbook: no payer-lock error at the restart; the new process resumed with
+`slots +N` on its first series; the leftover scan closed the one encoded VAA the stopped
+process had left open; and every series still settled on the full window. The restart cost
+nothing visible in the result, because the slots missed while it was down were backfilled
+like the rest.
+
+### Records this section also carries
+
+**Nov 13 listing** (`list-week`, 2026-11-02, 1 oz, expiry 1794603600), from the chain (each
+series' first transaction). `B66M…Zx21` was listed earlier for quotebook's I9 demo (quotebook
+PR #23); it is the only written one (3 longs).
+
+| Series | Terms | Listed (UTC) | Signature |
+| --- | --- | --- | --- |
+| `ZEmgA2iSdz2ruWcX6ARi8jZR6MEiiCpiDjzBGiVZAdW` | XAG call 48, cap 52.8 | 2026-11-02 09:23:36 | `4Bu353hAMVGDfWWE1Hcr8r9K7CRQ51YhdQWorjEdu6sFWd7jG4uvB5SPRpqkSAbsJWEz8756j6vxk5jcg68YVyb3` |
+| `R1KQh6RoAbymFvXZ3uxxCzqKshDdNRJzoVar2KgiAsW` | XAG call 49, cap 53.9 | 2026-11-02 09:23:39 | `3xA72d714spd2Wh5GZKLzAwhYzB4YKMtkbt1aLBVes4JRLhu9bH7FFN9SG4WzQxCQsU75JQXVV8Uq3LLqvwTmytW` |
+| `B66MftMja6L6g2XFNLWHUWE2Rjq1yTHtToWQTvxsZx21` | XAG call 50, cap 55 | 2026-11-02 07:43:47 | `hcGM3R9MTE1RyELZUhEAuKekXgke2Uzu3ExZfaeVj49UmzpTpQBmX3mVQKDr1apcqk8A5gF2CDRyx3XvFJiKKVZ` |
+| `6NuEV8mbELdVAehtszXJpsHP11mmwaMDkoqWgwMXuZ6r` | XAG call 51, cap 56.1 | 2026-11-02 09:23:52 | `3AC43MqopVXnBoaAYVMsCu48w4FfgcHLwikr27G9fXuqvzMZ2yGno4LgrYYNAFH8tfhZey6zLs8E3BavY8umbGU` |
+| `HzUsyCk2AAZ1Zy7DS6KLYLB1bprBjsSjmVmgLc1CpWxS` | XAG call 52, cap 57.2 | 2026-11-02 09:24:04 | `2GfGmQUFRRTunwUpswzuwhSMLCoQboy3YznRHxSWxJRiFh4PRkW927id2QaUBELt2cqgN9q7UwsCfuwrjGvL2zHj` |
+| `Tv6uNo4Myw8spocwLq8nzzAPdsZRRdSx1R93uFJKGSa` | XAG put 48 | 2026-11-02 09:23:35 | `2vbgPxxMTiGhzE8HaCC6j7bcWTgaDpA4Tm5giKqEf2qpn76HKoKsdzF7UwXEHrbgAEpiuVm5DwHvEW3ZUPuGd1Xe` |
+| `4PUCmxv6meHA76hqNUwjyZDuDQfKAYLBhp1JBQ5XnGNS` | XAG put 49 | 2026-11-02 09:23:38 | `4Y7aKjmLry6wK3rBmUnAu4MvYKt6NyzhCczzQi13RZ6tNggZhkK5ibwDngyrHHi8Jydoqd2fB35iZXCcYXQbDTcB` |
+| `AzC5aXQrMcbxVXfeXMGTsCFok8ncSpFmj2qhExKV7zUB` | XAG put 50 | 2026-11-02 09:23:49 | `v6h8qTbpGpUfh2QVxLh2pAU4btsMTKK9fV8tPiftNsXkuMXG8cMLThBa8vPMWBstPKZEfmeq9GYu8TVGaj9wQXF` |
+| `7YaPRTML6KUAtSWbF6WXmtKKvLmEn4hqZM3cQiS7uxMz` | XAG put 51 | 2026-11-02 09:23:50 | `56BSpLLLsyhNkXe6k11QpFHu28mRjPtYGqyTj8Akfwb8TnsBwUM4hdrNHMVUCrC4GsQNtKBwoCp2qkB8kivqogGG` |
+| `HgHcFZ7fc3DtE4CJFcJYsW4fPuv8nbBxZZAES4zsWjqJ` | XAG put 52 | 2026-11-02 09:23:53 | `4YysNsR7SoY2cxW37PVEqPPhVhEkAAkyNjEHz1nRAyTWWwFLSsPx9sJDT9s6LyeJCFvyC9UBMosbnd81NfGY1X7e` |
+| `HrJPbjwHUzFrzaeLTkxXZkPyyoeE54Ns6X1onEff1ETp` | XAU call 3750, cap 4125 | 2026-11-02 09:22:39 | `4djFxdqatYcysobiDVsjbRgoAZsRuGWCgwZphTbBgxBNN27sXdgCY2wFoxGGkMw4ByBnoc1WC2yqbE1BLNWrW1jL` |
+| `CAdP7LfbGa5jugWBGCUvFXGDAqrWeukYtG8sSQPFVYUo` | XAU call 3800, cap 4180 | 2026-11-02 09:22:42 | `5EqMYMV3F2pn1erbNTq3ii8yVfGZytfx7G4RgdYZckCJ4afx1FDxZXPnhUSuUWHiVEhfasYRzJJisMnJmL2gdNor` |
+| `51wa5Hh6ziwwWymf1pdENWiweSTXZrufHm1didRcB1nr` | XAU call 3850, cap 4235 | 2026-11-02 09:22:54 | `3Kw2g6VVLDhP9JVYHr3bxT3EpqMEkeyjf5QEsovcotA7g4HH9cXMG3vHMd7DywpjgUEwUF8AN2hssQ2kHQbgRn7c` |
+| `42iGoaVGrcSYcad49gVojG7XpSLXZyjzbwPZGigUcQto` | XAU call 3900, cap 4290 | 2026-11-02 09:22:56 | `4cxGoFi6T8Sk5wLjmyDdreCSXxRxXMyEtMCPVRXFtQPGCPt1ckzz2x9BN7N9reoPCvXcywtvsm8A9RyR4SdW69A6` |
+| `EMRP88Z7QNzYCfMiaDBXkjM2zgn76p6CXV4nUVBJY9sp` | XAU call 3950, cap 4345 | 2026-11-02 09:23:08 | `4enzUfmNwL8F5y9iW4q7S5YRf7RbmnoU53mqLH2LP4xptoagURtP5sBh1WMLKjEosS65o15psrSC1vRMUa5QyF8E` |
+| `H3oPp3YVv2Z3XyQXFLYxUrM5Bs17nLEUJcGjkchBJAoJ` | XAU call 4000, cap 4400 | 2026-11-02 09:23:11 | `5D1EhL66mjHCdsktpqztvvQoYGWeVeABT3Am5s71hyydbShVVeNR9vvTYHbmxX7mPmTDyRHQK2pppeJD65MVNutU` |
+| `6dPzg938Z98ToWt5CXYRaGYEPsQpQoZutaqicTkYs8c` | XAU call 4050, cap 4455 | 2026-11-02 09:23:22 | `2nwySSmKWyBee5MLHbcj8aSRxBNmwddo5Y37u8zwfep5D4JYqygw7Pmf3LjTk1o3xzC2w2htez8XGdfuibwTwGK6` |
+| `96a8f12ubdcRpVPh2qAk4X8WLcZrRwud9dPZP6JminT3` | XAU put 3750 | 2026-11-02 09:22:28 | `3gdXjy5K8fqzyGR2akMXHHsGR4hmJVb13ktN3MGeRQYYUwdcivnXqLC7puXN4v4as7xZKp4NwrwhxY9PwXXMUbaN` |
+| `FDn7RNaUcFb73vwuBv4r7uYaBssUcpu2RGeNoctYNcCe` | XAU put 3800 | 2026-11-02 09:22:40 | `2froit3RguwuG3CqozdX3zbDJCARSExrN5mGbgVShmidb7eScKbRpke1GA2Jfdvw6jX1cwvP8NiY4UF7WmtftN78` |
+| `2hd2i7zss2bJRAY5BexezAjYKuMCqZPEpWwzCoNm33S6` | XAU put 3850 | 2026-11-02 09:22:43 | `5FUVAi1GMyVzj5bSAAFtEf9kWSCTnHYrLpejxJBwRqQEPaVhV4vekzvdY16YuiQ9PLhzQtvZtyE4pAzkvyzkPEXm` |
+| `CBD3UHb4wgwNsngCkbDRNffh7uWFJpV6Xj7PqVA574x2` | XAU put 3900 | 2026-11-02 09:22:55 | `2ayDJ3EhtcdWRQ2B3FVbEJbtrqExWa765VW3eeWGfx8AwsDbGqsYshuXFqiuJAxtC9LPDsEto2UUZnURQtxTMhgp` |
+| `AsihMyQbtFk6PBHDuCfF7HXZgfb3ZbpXejnbyYYQkiu3` | XAU put 3950 | 2026-11-02 09:23:07 | `4qAeRgPLsPkspMo3DYT3RYRG2sjZjPV3mkVuvaRAyYiZKf6xk98rGH3cTMGGb3NTYS83X4jhxn69eN6AL8WSrDSU` |
+| `FeWTPxDkxqYQ4y82zB1hXYoUTv6mCtEJdxunVtLgVXy7` | XAU put 4000 | 2026-11-02 09:23:10 | `2ephggRkWuwK7z9xS6AE7Q9sPSiMr8ntdSU4vAgFNXhhCtBRVRzZpTsa7Ma5Nv98J1BNCNA3WcXGH99ueCsvm8L7` |
+| `D9TK5Ah7NDX6jvcLchs91gZjHqSXt2gBDdRJx57ikZFF` | XAU put 4050 | 2026-11-02 09:23:21 | `3Vf5GpdLQWP5d66hWeVrkgBRLXgQ4mUaqQ65a14aVeBku2eVX8zurFbZFGZ2gxSxrbf1njDWfgfmzaPDaQC5CNTW` |
+
+**Oct 30 reclaim** (2026-11-02, 09:24:49Z to 09:26:34Z): the 23 settled Oct 30 series
+were closed, each returning 0.004699 SOL of rent (0.004694 net of its fee), about 0.108 SOL
+in all. Their accounts no longer exist, so their results live only in the table of the
+section above. No `reclaim` has run since, and none runs until the phase 2 records are
+published (`docs/PLAN-phase2.md`, R6).
+
+| Series | Closed (UTC) | Signature |
+| --- | --- | --- |
+| `Dr5DN1cyYkNq4Xe9cKEud7cXDPjk57ERhhzvUQdBXHA` | 09:24:49 | `3CXKs2cfdS5XKNki3vJebaRs7mG7tDjLkKj1d3ZpJhTA9irLxnTXvaZrbUbt7792xNBT1MN3JmZ8TkRoRa4q2SAz` |
+| `JvKCAALDRAxd77sCLw1as17CQDXbvsg2u4ydbtGxQAi` | 09:24:51 | `65r1H7yK9SmVAhumzn42SBv5Y8rA3wNckQPppw4pmNkWEosGYjhEY9VBpjdGSxFAXFFVvzGRTiqM7U9v5LvoPMgm` |
+| `2CpwYjJVt33VQ6b8NBHSiqYxJASnk2ZtWvv3gznpswU5` | 09:24:52 | `9JiJZcQ3eUqmNmUZhvvNuDaUnYBkexFust2Y19coeP1SnKijWeZpxsEe9Kd8TvBDSCRFSgpeefKe2dzU6SSBFjL` |
+| `3hhKKRXq8bJne9aPH2P5vtDjnaY1neJuTRpVhzDy53Jq` | 09:24:53 | `5Ti1meKPr3vbQFMDSs2xhByvwdfAJbwjCRSXWuM1oF9VqGM3zhbwoEkvpLsgUdE3sfPTs8kgYbmFHBLGqtLqjetK` |
+| `4BP9Rw5jAprEPqf476bZmZd9W5pibvRFNWKowZeKuAth` | 09:25:04 | `4mKyXALLRU16JXyh3k7N2qmUq9SGDcQHhwvWjy3RKZogTnJdj6zBp4ZGVstNXXhpXu28puftv4x14i4CgQo51gB9` |
+| `4W67aaLu1gUYwBszn9Zubt1hAq2wy4SL5N7XRUczF9St` | 09:25:05 | `5tEYM34oF8Z83xaJppUPksXYR1cYS87mXYEERk7U9U3KfKrPDtAh2TFcfmR8MLxDsdV5DW4k9D6butNGRYAMPeMu` |
+| `4u74R8Zn88TTxFHaDBVifQKSHgyJbsGCo9ndhG4raXhv` | 09:25:07 | `241iazQQqTqgxZz1MARaLkkfLyMcaWZ8CMYkRTHqSxCCfEnXRaoSiuRfkGMvWK2HtzecM9ji85jcR7TaucpEpiJZ` |
+| `5vvy5enzqBm5zfZnUFnDs8K5AG8JEEwNbspvV2CDusbN` | 09:25:18 | `2RKtMvc8z88J55XcBg76weFdeUss18jAqbmn9F1SYcC2Va1YdxT8XFW8gZJVKNdC7y7jBDuzjyGc4knjwLrnFmsX` |
+| `6ZbdqcGTddC3SoTtggHEWWyDj4XJsFGwU58GVZmktmyM` | 09:25:19 | `4ncC7dWsqXfSyVsNYJ9i4pjz4tBQ1EDJUk4RAbpq35S1M1o4WK3JiRmkZH9yyDz6NvbBAbLEuw5QWk9xZDWou1kf` |
+| `6qg3wruL2TocFw9f4Q3CXA8mmWx6GKsGeMTUphPJgF5H` | 09:25:30 | `66f4nQBvVFviX6x8UpSyxn54KcGYdfZd4yDU3P5LtDMtVoiMzPnHhcqaiGYoUecfP5m4t9CyeaL9HBUXiSTxZgr4` |
+| `8Lv5WwKejsFCrawBAvVvUgEdsSmCBaARevXgLzvSUCAU` | 09:25:32 | `243r3jwWSLmqDxJUV3Y9uQbN6JS2EnJ4bXs21NXerMv5jzp4sVauSRRSjKKaKRUEMRK83RZkGGDuax5qaLqEYzzo` |
+| `92xnofbYSfeSqvoxrdNoPfeU9kpfr7FDu8JeijgasQiw` | 09:25:33 | `4suEDcomsmZguFqRJryHLM8upSLCBGNwhLz48zxvDVVxv9JkUyQEJjqzAVyAgse8yTuA5GYwwadi4D52kqa8LN3U` |
+| `9HGpi5WbLxWSZfU3WuydbXMPfNvJrdA5T4FC3Dtee57W` | 09:25:44 | `ttvCfokpxPr6ixbQAvmbc8JQVffmZXctzTBfvJzticjeNkfDUZGmxmcjWEQAbqVNRQ7aJE7wvqZvseybvV3Vwhg` |
+| `ANtq1DXY6rg92dag8sLHLzm8dMG5t2Pn6CZzZw145oon` | 09:25:46 | `3TUaXXG4TwSv67BsMTGnKYY6E2uJY5GPbLNKPYaASwq2BDEcSwMNaW8terxvvsh5cwgK5RMve1JVRdj2k8gYkNSV` |
+| `9d1C6cKzUMCTh7Uj5jLQmF1FNLBpbmX5xfsgTQVJRVLK` | 09:25:46 | `5CEiU16CJ4rz324m8ia4Kvmzu31hMEiU6E4yjLqZvv18YSeDx6VbUcTfmdv7GbbFzCcr3oo3FNeGyYpC2ki9xaZp` |
+| `AqnB9PpgUAhW4tmqzt2Srzsgdfm2BzU6m2jbbfYYpBi4` | 09:25:57 | `2rddTNTNs6oFsMb5nQSU3N8pNop6au4Zh2GS4wDodmuxnSLCVCqXJhv8q6cEoeFS3hcxTAXGXooGbE1Nsw6q8ZSg` |
+| `B5pPdQXhGKnEyWkU2PZZzPV1kio3jaEoQGFBSh4D4uoG` | 09:25:58 | `27RSSEYGj53gme7JNP1S9jNcsEdPHKtQxBhpda3S5m6Tv1VJG7Jz4cJVUfU46mbm3EGfWUMkTiMkddAWf3J4rBoz` |
+| `BSpa2zeovzEUdd9dZ6LwfNuw3BpBVWpetna9qYDqYG4R` | 09:25:59 | `3MaMk2pk8zR5BM67L5PAUaLywPFLaZTUD4whLCBNow7bUSRTGQd8ug2rzv3JWQT7ykAd6QbuqFJUaVXFA4eukC62` |
+| `BvhmabWKVnDWacexfQw58U1uGbU3HLDV4AfHKquuaBbi` | 09:26:01 | `4yM4QTWxWwnb2ENcDfSUCAXiS79RG8CebQqxMJsvX98km7gwuhTyMFLB2z7jjpy3qW6sTLPdbCFUoomWHazsPBYg` |
+| `C5CA4egx9AWTVg35Y3k1EhkwfcYMGdGs5hNWDrVM6UTX` | 09:26:02 | `4Z3BQDcuuFXdm4p8yyhBZPceGjLQsfgjbt5ZxJLJnTnFwHDwGkToWM71dTr77QgjhyRjmEKwypj5nusMZVd28o9Y` |
+| `Dw3skzBfb9S3kBrRnAvSkvGKoZcRbFy178yZ93WSiL1y` | 09:26:12 | `5VCaUTdiLtC3GvoktwhHxew9ptdP2Rk9M6nXRzQHr5a6ZruPFVjah5gP4hiLWVcJMgzskoF7eY8DFMj3oPyF8iX2` |
+| `EfyCdzYUmTY8ie6XtbHpQAgzA1bBZdhC47wK6Ez6JyRU` | 09:26:22 | `4WpzrP8XLGKAT9amBp2eEyiPDD68CTfjfEgtXdaK9iFKPHpnqh39rVCnShXFZ6TAS1ASeRu4XciBTSUQ7KTjzT5t` |
+| `Hs2SMW7Uv5TkPzBpZbLmPNuGepAyrUhmh1FfU6Yxtp9U` | 09:26:34 | `2U4WA5v66SEtugQzpBHUxLg7vPfeDJMVRgtXHSxL5W1KWz6EZueuBo1BrFb4Ue3czc5WrfJhND8z7wtV5f3iLkth` |
+
 ## Not done yet
 
-- **The void path**: the ten 50 oz XAG Oct 30 series reach `hard_deadline_s` on Nov 6; their
-  `settle` (void) is to be recorded here.
 - **Trading** through QuoteBook on devnet, once the maker has more USDC.
