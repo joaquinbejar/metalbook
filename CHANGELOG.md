@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `metalbook-admin roll`, the weekly series roller (`docs/PLAN-phase2.md`, R1): for each metal,
+  the `list-week` shape for the first calendar expiry at least `--min-lead-s` ahead (default 3
+  days, never closer than `min_listing_s`, not before `--min-expiry`), creating only the
+  missing series, nearest spot first, at most `--max` (28) a run and `--max-per-expiry` (18)
+  per metal and expiry. Nothing within 2 h of any calendar expiry (before any Hermes request);
+  refused unless the config multiplier is `--multiplier-milli-oz` (1 oz); a stale print or a
+  busy Hermes budget is a skip, any other read error fails that metal with nothing sent.
+  `scripts/series-roll.sh run|install|uninstall|status <name>` runs it as a LaunchAgent every
+  6 h, with the Hermes key from `~/.zshrc` only, the binary copied out of the checkout and the
+  log rotated at 10 MB (5 kept); `scripts/tests/series-roll.sh` tests it offline
+  (`make scripts-test`, now part of `make pre-push`). Runbook: `docs/runbooks/series-roll.md`.
+- A shared Hermes limiter for every metalbook process on a host
+  (`metalbook_keeper::HermesLimiter` and `LimitedHttp`, ported from varswap's I6 limiter): at
+  most 7 requests in any 60 s window, files `metalbook-hermes-<hash of the key>` apart from
+  varswap's, a 429 blocking all of them for 61 s, slots held by a kernel `flock` and freed only
+  when released or when their owner dies. The keeper and `list-week` wait for a slot, the
+  roller only tries (`KeeperError::BudgetBusy`).
+- `metalbook-watch` alerts `NoNextSeries` (while the market is open, a metal has no active 1 oz
+  series expiring at least 24 h ahead) and `CalendarLow` (fewer than 2 future expiries), when
+  it discovers every series.
+
 ### Changed
 
 - metalbook-maker uses optfix 0.3 (0.3.0 is `max_stable_version` on crates.io, checked

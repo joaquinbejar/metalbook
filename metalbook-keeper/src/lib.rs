@@ -28,6 +28,7 @@ mod error;
 mod hermes;
 mod keeper;
 mod layout;
+mod limiter;
 mod source;
 
 pub use batch::{BatchError, PassReport};
@@ -39,4 +40,8 @@ pub use hermes::{
 };
 pub use keeper::{Keeper, TickReport};
 pub use layout::{SeriesView, SERIES_LEN};
+pub use limiter::{
+    held_requests, state_files, Admission, HeldRequest, HermesLimiter, LimitedHttp, Slot, BLOCK_MS,
+    DEFAULT_REQUESTS_PER_MINUTE, FILE_PREFIX, WINDOW_MS,
+};
 pub use source::{PriceSource, PrintMsg, TapeSource};

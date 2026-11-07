@@ -29,6 +29,10 @@ pub enum KeeperError {
     /// A Hermes binary update is malformed or lacks the feed (milestone 7b-2).
     #[error("price update: {0}")]
     Update(&'static str),
+    /// No Hermes request slot was free and the caller does not wait
+    /// ([`crate::Admission::Try`]): nothing was sent.
+    #[error("hermes budget busy: no request slot free, nothing sent")]
+    BudgetBusy,
     /// A configuration value is missing or invalid.
     #[error("configuration: {0}")]
     Config(&'static str),

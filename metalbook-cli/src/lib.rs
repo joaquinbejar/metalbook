@@ -11,6 +11,7 @@ pub mod keeper_chain;
 pub mod listing;
 pub mod metrics;
 pub mod params;
+pub mod roll;
 pub mod rpc;
 pub mod watch;
 

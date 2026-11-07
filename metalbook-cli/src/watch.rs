@@ -32,6 +32,11 @@ pub const LOW_BALANCE_LAMPORTS: u64 = 500_000_000;
 /// The heartbeat channel.
 pub const CHANNEL: &str = "metalbook-keepers";
 
+/// `NoNextSeries`: a metal needs a live series expiring at least this far ahead, seconds.
+pub const NEXT_SERIES_AHEAD_S: i64 = 86_400;
+/// `CalendarLow`: fewer future calendar expiries than this.
+pub const CALENDAR_MIN_FUTURE: usize = 2;
+
 /// Prefix of a heartbeat message body.
 const HEARTBEAT_PREFIX: &str = "heartbeat keeper=";
 
@@ -84,6 +89,29 @@ pub enum Alert {
     },
     /// The heartbeat channel could not be read: keeper liveness is unknown, not dead.
     HeartbeatUnknown,
+    /// While the market is open, a metal has no live series of the roller's size expiring at
+    /// least [`NEXT_SERIES_AHEAD_S`] ahead (`docs/PLAN-phase2.md`, R1).
+    NoNextSeries {
+        /// The metal (`Underlying` discriminant).
+        underlying: u8,
+    },
+    /// A metal's calendar has fewer than [`CALENDAR_MIN_FUTURE`] future expiries: the roller
+    /// runs out unless the admin extends it.
+    CalendarLow {
+        /// The metal.
+        underlying: u8,
+        /// Its future expiries.
+        future: usize,
+    },
+}
+
+/// `xau` or `xag`, for alert text.
+fn metal(underlying: u8) -> &'static str {
+    match underlying {
+        0 => "xau",
+        1 => "xag",
+        _ => "unknown",
+    }
 }
 
 impl Alert {
@@ -98,6 +126,8 @@ impl Alert {
             Self::Leftovers { payer, .. } => format!("leftovers:{payer}"),
             Self::KeeperSilent { keeper, .. } => format!("silent:{keeper}"),
             Self::HeartbeatUnknown => "heartbeat-unknown".into(),
+            Self::NoNextSeries { underlying } => format!("next-series:{}", metal(*underlying)),
+            Self::CalendarLow { underlying, .. } => format!("calendar:{}", metal(*underlying)),
         }
     }
 
@@ -113,6 +143,7 @@ impl Alert {
             Self::LowBalance { .. } => "docs/runbooks/low-balance.md",
             Self::Leftovers { .. } => "docs/runbooks/orphaned-vaas.md",
             Self::HeartbeatUnknown => "docs/runbooks/keeper-restart.md (failure modes)",
+            Self::NoNextSeries { .. } | Self::CalendarLow { .. } => "docs/runbooks/series-roll.md",
         }
     }
 
@@ -147,6 +178,15 @@ impl Alert {
             Self::HeartbeatUnknown => {
                 "heartbeat channel unreadable: keeper liveness unknown".into()
             }
+            Self::NoNextSeries { underlying } => format!(
+                "{}: no live series expiring at least {NEXT_SERIES_AHEAD_S} s ahead while the \
+                 market is open",
+                metal(*underlying)
+            ),
+            Self::CalendarLow { underlying, future } => format!(
+                "{}: {future} future calendar expiry(ies), under {CALENDAR_MIN_FUTURE}",
+                metal(*underlying)
+            ),
         };
         format!("ALERT {what}. Runbook: {}", self.runbook())
     }
@@ -206,6 +246,138 @@ pub fn series_alerts(series: &Address, view: &SeriesView, now: i64) -> Vec<Alert
         });
     }
     out
+}
+
+/// A listed series as the listing alerts see it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Listed {
+    /// The metal.
+    pub underlying: u8,
+    /// Expiry, Unix seconds.
+    pub expiry: i64,
+    /// Multiplier, milli-ounces.
+    pub multiplier: u32,
+    /// Still active (not expired, settled or voided).
+    pub active: bool,
+}
+
+/// The listing alerts at `now`: `CalendarLow` per metal with fewer than [`CALENDAR_MIN_FUTURE`]
+/// future expiries in `calendars` (indexed by metal), and, only while `market_open`,
+/// `NoNextSeries` per metal with no active `multiplier` series expiring at least
+/// [`NEXT_SERIES_AHEAD_S`] ahead.
+#[must_use]
+pub fn listing_alerts(
+    listed: &[Listed],
+    calendars: &[Vec<i64>],
+    multiplier: u32,
+    now: i64,
+    market_open: bool,
+) -> Vec<Alert> {
+    let mut out = Vec::new();
+    for (i, calendar) in calendars.iter().enumerate() {
+        let Ok(underlying) = u8::try_from(i) else {
+            continue;
+        };
+        let future = calendar.iter().filter(|e| **e > now).count();
+        if future < CALENDAR_MIN_FUTURE {
+            out.push(Alert::CalendarLow { underlying, future });
+        }
+        let ahead = now.saturating_add(NEXT_SERIES_AHEAD_S);
+        let live = listed.iter().any(|s| {
+            s.underlying == underlying
+                && s.multiplier == multiplier
+                && s.active
+                && s.expiry >= ahead
+        });
+        if market_open && !live {
+            out.push(Alert::NoNextSeries { underlying });
+        }
+    }
+    out
+}
+
+/// Days since 1970-01-01 of a proleptic Gregorian date (H. Hinnant's `days_from_civil`).
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let y = if month <= 2 {
+        year.saturating_sub(1)
+    } else {
+        year
+    };
+    let era = y.div_euclid(400);
+    let yoe = y.saturating_sub(era.saturating_mul(400));
+    let m = if month > 2 {
+        month.saturating_sub(3)
+    } else {
+        month.saturating_add(9)
+    };
+    let doy = m
+        .saturating_mul(153)
+        .saturating_add(2)
+        .checked_div(5)
+        .unwrap_or(0)
+        .saturating_add(day)
+        .saturating_sub(1);
+    let doe = yoe
+        .saturating_mul(365)
+        .saturating_add(yoe.checked_div(4).unwrap_or(0))
+        .saturating_sub(yoe.checked_div(100).unwrap_or(0))
+        .saturating_add(doy);
+    era.saturating_mul(146_097)
+        .saturating_add(doe)
+        .saturating_sub(719_468)
+}
+
+/// Day of the week of a day number, 0 for Sunday (1970-01-01 was a Thursday).
+fn weekday(days: i64) -> i64 {
+    days.saturating_add(4).rem_euclid(7)
+}
+
+/// The `n`-th Sunday (1-based) of `month` in `year`, as a day number.
+fn nth_sunday(year: i64, month: i64, n: i64) -> i64 {
+    let first = days_from_civil(year, month, 1);
+    let to_sunday = 7_i64.saturating_sub(weekday(first)).rem_euclid(7);
+    first
+        .saturating_add(to_sunday)
+        .saturating_add(n.saturating_sub(1).saturating_mul(7))
+}
+
+/// Whether New York is on daylight time at `now` (US rule since 2007: from the second Sunday of
+/// March at 2:00 EST, 07:00Z, to the first Sunday of November at 2:00 EDT, 06:00Z).
+fn new_york_dst(now: i64) -> bool {
+    let days = now.div_euclid(86_400);
+    // The year of `days`, from an estimate corrected both ways.
+    let mut year = days.checked_div(365).unwrap_or(0).saturating_add(1970);
+    while days_from_civil(year, 1, 1) > days {
+        year = year.saturating_sub(1);
+    }
+    while days_from_civil(year.saturating_add(1), 1, 1) <= days {
+        year = year.saturating_add(1);
+    }
+    let start = nth_sunday(year, 3, 2)
+        .saturating_mul(86_400)
+        .saturating_add(7 * 3_600);
+    let end = nth_sunday(year, 11, 1)
+        .saturating_mul(86_400)
+        .saturating_add(6 * 3_600);
+    now >= start && now < end
+}
+
+/// Whether the metals trade at `now` on Pyth's schedule (`README.md`, Market Hours): New York
+/// time, Sunday 18:00 to Friday 17:00, with a daily pause from 17:00 to 18:00. Holidays are not
+/// known here; on a holiday the `NoNextSeries` alert can fire although the market is closed.
+#[must_use]
+pub fn metals_market_open(now: i64) -> bool {
+    let offset: i64 = if new_york_dst(now) { -4 } else { -5 };
+    let local = now.saturating_add(offset.saturating_mul(3_600));
+    let days = local.div_euclid(86_400);
+    let tod = local.rem_euclid(86_400);
+    let (pause_start, pause_end) = (17 * 3_600, 18 * 3_600);
+    match weekday(days) {
+        0 => tod >= pause_end,
+        1..=4 => !(pause_start..pause_end).contains(&tod),
+        5 => tod < pause_start,
+        _ => false,
+    }
 }
 
 /// A heartbeat message body: `heartbeat keeper=<name> <fields>`.
@@ -735,5 +907,91 @@ mod tests {
             .filter(|(_, b)| b == &format!("RESOLVED {payer_key}"))
             .count();
         assert_eq!(resolved, 1);
+    }
+
+    // 2026: DST until Sunday Nov 1, 06:00Z; Oct 30 is EDT, Nov 13 is EST.
+    const FRI_NOV13_21Z: i64 = 1_794_603_600;
+    const FRI_OCT30_20Z: i64 = 1_793_390_400;
+
+    #[test]
+    fn test_market_hours_new_york() {
+        // Friday Nov 13, EST: open at 16:00 (21:00Z) and 16:59, closed from 17:00 (22:00Z).
+        assert!(metals_market_open(FRI_NOV13_21Z));
+        assert!(metals_market_open(FRI_NOV13_21Z + 3_599));
+        assert!(!metals_market_open(FRI_NOV13_21Z + 3_600));
+        // Saturday, and Sunday before 18:00 (23:00Z): closed; Sunday 18:00: open.
+        assert!(!metals_market_open(FRI_NOV13_21Z + 86_400));
+        let sun_18 = FRI_NOV13_21Z + 2 * 86_400 + 2 * 3_600;
+        assert!(!metals_market_open(sun_18 - 1));
+        assert!(metals_market_open(sun_18));
+        // Wednesday's daily pause, 17:00 to 18:00 EST (22:00Z to 23:00Z).
+        let wed_17 = FRI_NOV13_21Z - 2 * 86_400 + 3_600;
+        assert!(metals_market_open(wed_17 - 1));
+        assert!(!metals_market_open(wed_17));
+        assert!(!metals_market_open(wed_17 + 3_599));
+        assert!(metals_market_open(wed_17 + 3_600));
+        // Friday Oct 30, EDT: 16:00 is 20:00Z, the close is 21:00Z.
+        assert!(metals_market_open(FRI_OCT30_20Z + 3_599));
+        assert!(!metals_market_open(FRI_OCT30_20Z + 3_600));
+    }
+
+    #[test]
+    fn test_new_york_dst_edges() {
+        // 2026: from Sunday Mar 8, 07:00Z, to Sunday Nov 1, 06:00Z.
+        let mar8_07z = days_from_civil(2026, 3, 8) * 86_400 + 7 * 3_600;
+        let nov1_06z = days_from_civil(2026, 11, 1) * 86_400 + 6 * 3_600;
+        assert!(!new_york_dst(mar8_07z - 1));
+        assert!(new_york_dst(mar8_07z));
+        assert!(new_york_dst(nov1_06z - 1));
+        assert!(!new_york_dst(nov1_06z));
+        assert_eq!(days_from_civil(1970, 1, 1), 0);
+        assert_eq!(
+            days_from_civil(2026, 11, 13) * 86_400 + 21 * 3_600,
+            FRI_NOV13_21Z
+        );
+        assert_eq!(weekday(days_from_civil(2026, 11, 13)), 5);
+    }
+
+    fn listed(underlying: u8, expiry: i64, multiplier: u32, active: bool) -> Listed {
+        Listed {
+            underlying,
+            expiry,
+            multiplier,
+            active,
+        }
+    }
+
+    #[test]
+    fn test_listing_alerts() {
+        let now = FRI_NOV13_21Z - 3 * 86_400;
+        let next = FRI_NOV13_21Z;
+        let cal = vec![vec![next, next + 7 * 86_400], vec![next]];
+        // XAU has a live 1 oz series; XAG only a 50 oz one, and its calendar is low.
+        let series = [listed(0, next, 1_000, true), listed(1, next, 50_000, true)];
+        let a = listing_alerts(&series, &cal, 1_000, now, true);
+        assert_eq!(
+            a,
+            vec![
+                Alert::CalendarLow {
+                    underlying: 1,
+                    future: 1
+                },
+                Alert::NoNextSeries { underlying: 1 }
+            ]
+        );
+        assert_eq!(a[1].key(), "next-series:xag");
+        assert!(a[0].text().contains("docs/runbooks/series-roll.md"));
+        // Market closed: no NoNextSeries, the calendar alert stays.
+        assert_eq!(listing_alerts(&series, &cal, 1_000, now, false).len(), 1);
+        // A series expiring in less than a day, or no longer active, does not count.
+        let late = now + NEXT_SERIES_AHEAD_S - 1;
+        let soon = [listed(0, late, 1_000, true), listed(1, next, 1_000, false)];
+        let a = listing_alerts(&soon, &cal, 1_000, now, true);
+        assert!(a.contains(&Alert::NoNextSeries { underlying: 0 }));
+        assert!(a.contains(&Alert::NoNextSeries { underlying: 1 }));
+        // Two future expiries are enough; one already past does not count.
+        let cal = vec![vec![now - 1, next, next + 1], vec![next, next + 1]];
+        let ok = [listed(0, next, 1_000, true), listed(1, next, 1_000, true)];
+        assert!(listing_alerts(&ok, &cal, 1_000, now, true).is_empty());
     }
 }
