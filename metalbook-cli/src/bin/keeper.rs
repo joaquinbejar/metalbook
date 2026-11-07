@@ -19,7 +19,10 @@
 //!
 //! Hermes budget (`docs/PLAN-improvements.md`, P2): the key is shared with varswap, and
 //! metalbook's processes together send at most 7 requests a minute. Every request of this
-//! process is paced at `--hermes-interval-s` (default and floor 12 s, 5 a minute).
+//! process is paced at `--hermes-interval-s` (default and floor 12 s, 5 a minute) and taken
+//! from metalbook's shared limiter (`metalbook_keeper::HermesLimiter`, `docs/PLAN-phase2.md`
+//! R1 step 3a), which bounds the sum over every metalbook process on the host, waiting for a
+//! slot when the others hold them all.
 //!
 //! After every pass that sent anything, one line reports the pass's transaction attempts
 //! (confirmed, failed, attempted bytes, the pass's largest) and Hermes requests by status, for
@@ -38,7 +41,8 @@ use metalbook_cli::rpc::Cluster;
 use metalbook_cli::watch::{heartbeat_body, heartbeat_due, AcsCli, Notify, Target, CHANNEL};
 use metalbook_cli::{read_keypair, CliError};
 use metalbook_keeper::{
-    Chain, HermesConfig, HermesSource, Keeper, SeriesView, UreqHttp, SERIES_LEN,
+    Admission, Chain, HermesConfig, HermesSource, Keeper, LimitedHttp, SeriesView, UreqHttp,
+    SERIES_LEN,
 };
 use metalbook_sdk::core::SeriesState;
 use metalbook_sdk::Address;
@@ -104,7 +108,8 @@ fn run(args: Args) -> Result<(), CliError> {
     let payer_address = solana_signer::Signer::pubkey(&payer);
     let hermes = HermesConfig::from_env().map_err(|e| CliError::Usage(e.to_string()))?;
     let interval = hermes_interval(args.hermes_interval_s)?;
-    let http = CountingHttp::new(UreqHttp::new());
+    let limiter = metalbook_cli::metrics::hermes_limiter(&hermes)?;
+    let http = CountingHttp::new(LimitedHttp::new(UreqHttp::new(), limiter, Admission::Wait));
     let source = HermesSource::new(hermes, &http).with_min_interval(interval);
     let fixed: Vec<Address> = args
         .series
