@@ -14,6 +14,7 @@ One page per situation, each with its commands, exact arguments and expected out
 | [void.md](void.md) | A series nothing can price: void, refunds, close |
 | [upgrade-rollback.md](upgrade-rollback.md) | Deploying a new program binary, or the previous one |
 | [key-compromise.md](key-compromise.md) | Any role's key, the Hermes key or the maker's key is exposed |
+| [series-roll.md](series-roll.md) | The weekly roller: `NoNextSeries`, `CalendarLow`, a failed or busy run, extending the calendar |
 
 Keys and roles are in `docs/keys.md`; what is in scope for an audit is in
 `docs/audit-scope.md`.

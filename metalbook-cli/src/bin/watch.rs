@@ -6,6 +6,10 @@
 //! and each resolved one to the channel. Lag is measured against the schedule (a slot empty
 //! past its tolerance and grace), never against a print it cannot see. It needs no Hermes key
 //! and holds no signing key. The RPC URL is never printed.
+//!
+//! When it discovers every series (no `--series`), it also reads both calendars and raises the
+//! roller's listing alerts (`docs/PLAN-phase2.md`, R1): `NoNextSeries` while the market is open
+//! and `CalendarLow`, both pointing to `docs/runbooks/series-roll.md`.
 
 use std::process::ExitCode;
 use std::time::Duration;
@@ -14,10 +18,10 @@ use clap::Parser;
 use metalbook_cli::params::parse_address;
 use metalbook_cli::rpc::Cluster;
 use metalbook_cli::watch::{
-    latest_heartbeats, liveness_alerts, series_alerts, AcsCli, Alert, Announcer, Notify, CHANNEL,
-    LOW_BALANCE_LAMPORTS,
+    latest_heartbeats, listing_alerts, liveness_alerts, metals_market_open, series_alerts, AcsCli,
+    Alert, Announcer, Listed, Notify, CHANNEL, LOW_BALANCE_LAMPORTS,
 };
-use metalbook_cli::CliError;
+use metalbook_cli::{read_calendar, CliError};
 use metalbook_keeper::{SeriesView, SERIES_LEN};
 use metalbook_sdk::Address;
 use pyth_post::{LeftoverScanner, RpcTransport};
@@ -79,7 +83,7 @@ fn run(args: &Args) -> Result<(), CliError> {
         .iter()
         .map(|s| parse_address(s))
         .collect::<Result<_, _>>()?;
-    let cluster = Cluster::new(&args.url);
+    let mut cluster = Cluster::new(&args.url);
     let transport = RpcTransport::new(&args.url);
     let acs = AcsCli {
         program: args.acs.clone(),
@@ -123,12 +127,52 @@ fn run(args: &Args) -> Result<(), CliError> {
                 continue;
             }
         };
+        let mut terms: Vec<Listed> = Vec::new();
         for (s, data) in listed {
+            if let Ok(t) = metalbook_sdk::decode::series(&program_id, &program_id, &data) {
+                terms.push(Listed {
+                    underlying: t.underlying,
+                    expiry: t.expiry,
+                    multiplier: t.multiplier,
+                    active: t.state == 0,
+                });
+            }
             if excluded.contains(&s) {
                 continue;
             }
             if let Ok(view) = SeriesView::decode(&data) {
                 alerts.extend(series_alerts(&s, &view, now));
+            }
+        }
+        // Listing alerts (R1) need every series of the program, so not with `--series`.
+        if fixed.is_empty() {
+            let mut calendars = Vec::new();
+            for metal in metalbook_cli::roll::METALS {
+                match read_calendar(&mut cluster, &program_id, metal) {
+                    Ok(c) => calendars.push(
+                        c.expiries
+                            .iter()
+                            .take(usize::from(c.count))
+                            .copied()
+                            .collect::<Vec<i64>>(),
+                    ),
+                    Err(e) => {
+                        eprintln!("calendar {metal}: {e}");
+                        break;
+                    }
+                }
+            }
+            if calendars.len() == metalbook_cli::roll::METALS.len() {
+                alerts.extend(listing_alerts(
+                    &terms,
+                    &calendars,
+                    metalbook_cli::roll::DEFAULT_MULTIPLIER_MILLI_OZ,
+                    now,
+                    metals_market_open(now),
+                ));
+            } else {
+                unobserved.push("calendar:".into());
+                unobserved.push("next-series:".into());
             }
         }
         for (payer, scanner) in payers.iter().zip(scanners.iter_mut()) {

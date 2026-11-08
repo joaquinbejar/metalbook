@@ -97,7 +97,10 @@ closed) and the 26 series of that week settled on their full window. Released as
 - Admin CLI over JSON-RPC with `--dry-run` and JSON reads
 - Honest settlement keeper with a Hermes price source, posting each print once for up to 10 series
 - Chain-only monitor (`metalbook-watch`): overdue slots and settlements, pending voids, low
-  payer balance, leftover encoded VAAs, silent keepers
+  payer balance, leftover encoded VAAs, silent keepers, no next series, a calendar running out
+- Weekly series roller (`metalbook-admin roll`, a LaunchAgent through `scripts/series-roll.sh`)
+- One Hermes budget for every metalbook process on a host: 7 requests a minute through a shared
+  file lock limiter
 - Deterministic compute unit benchmark (`make bench`)
 - Verifiable build (`make verifiable`): the devnet program's hash equals the verifiable build's
 
@@ -174,6 +177,13 @@ settles are batched too (`--no-batch` ticks each series on its own). The binary 
 at one request every 12 s or more (`--hermes-interval-s`), holds a payer lock shared with every
 pyth-post poster on the machine, and closes leftover encoded VAAs.
 
+Every Hermes request of a metalbook process (keepers, `list-week`, the roller) goes through
+one limiter per host and key (`metalbook_keeper::HermesLimiter`, ported from varswap): at most 7
+requests in any 60 s window across all of them, a 429 blocking every process for 61 s. A
+request counts from admission until a window after its answer, and a slot is freed only when
+its owner releases it or dies (a kernel `flock`), never by guessing from a process id. Keepers
+wait for a slot; the roller only takes a free one and otherwise skips its run.
+
 ### Hermes client
 
 `HermesSource` implements `PriceSource` over Hermes `GET /v2/updates/price/{t}` (the first
@@ -201,19 +211,22 @@ keypair file (`--keypair` or `METALBOOK_KEYPAIR`) and sent over JSON-RPC (`--url
 `SOLANA_URL`):
 
 - admin: `init-config`, `set-config`, `set-calendar`;
-- listing: `create-series`, and `list-week` (a put and a capped call at every grid strike
-  within ±5% of a fresh Pyth print, for one calendar expiry);
+- listing: `create-series`, `list-week` (a put and a capped call at every grid strike
+  within ±5% of a fresh Pyth print, for one calendar expiry), and `roll`, the weekly roller:
+  the same shape for the first expiry at least 3 days ahead, only the missing series, at most
+  28 a run and 18 per metal and expiry, nothing within 2 h of an expiry, a closed market or a
+  busy Hermes budget a skip (`docs/runbooks/series-roll.md`);
 - writers and holders: `mint`, `redeem`, `claim-writer`;
 - settlement and cleanup: `settle`, `close-series`, and `reclaim` (`close-series` on every
   series that owes nothing);
 - reads: `show-config`, `show-calendar`, `show-series` (decoded, as JSON) and an offline
   `series-address`.
 
-`--dry-run` prints the instruction instead of sending it; `list-week` and `reclaim` only print
-their plan unless `--execute`. The RPC URL never appears in errors, `Debug` or `--help`, and
+`--dry-run` prints the instruction instead of sending it; `list-week`, `roll` and `reclaim` only
+print their plan unless `--execute`. The RPC URL never appears in errors, `Debug` or `--help`, and
 keypair files are never printed. The same crate builds `metalbook-keeper` (see
-[Keeper](#keeper)) and `metalbook-watch`, which reads every series, the keepers' payer balances
-and heartbeats, and needs no Hermes key and no signing key.
+[Keeper](#keeper)) and `metalbook-watch`, which reads every series, both calendars, the keepers'
+payer balances and heartbeats, and needs no Hermes key and no signing key.
 
 ### Quoting through QuoteBook
 
@@ -511,6 +524,7 @@ make test       # unit, property and LiteSVM tests (needs both programs built fi
 make bench      # regenerate docs/benchmarks.md
 make fuzz       # cargo-fuzz targets, time boxed (nightly toolchain)
 make verifiable # the program built with solana-verify (Docker, amd64); see docs/verifiable-build.md
+make scripts-test # offline tests of scripts/ (fake binaries, no RPC, no LaunchAgent)
 ```
 
 Tests: proptest for the core math (collateral covers the maximum payout and the vault empties

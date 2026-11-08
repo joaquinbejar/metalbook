@@ -37,6 +37,27 @@ pub fn hermes_interval(seconds: u64) -> Result<Duration, CliError> {
     Ok(Duration::from_secs(seconds))
 }
 
+/// metalbook's shared Hermes limiter for the key in `config` (`docs/PLAN-phase2.md`, R1 step
+/// 3a): [`metalbook_keeper::DEFAULT_REQUESTS_PER_MINUTE`] a minute across every metalbook process
+/// on this host, in pyth-post's lock directory (`$PYTH_POST_LOCK_DIR`, default
+/// `~/.local/state/pyth-post`). The files are named after a hash of the key, never the key.
+///
+/// # Errors
+///
+/// [`CliError::Usage`] when the directory cannot be found or created.
+pub fn hermes_limiter(
+    config: &metalbook_keeper::HermesConfig,
+) -> Result<metalbook_keeper::HermesLimiter, CliError> {
+    let dir = pyth_post::default_lock_dir()
+        .map_err(|e| CliError::Usage(format!("Hermes limiter directory: {e}")))?;
+    metalbook_keeper::HermesLimiter::for_key(
+        &dir,
+        config.api_key(),
+        metalbook_keeper::DEFAULT_REQUESTS_PER_MINUTE,
+    )
+    .map_err(|e| CliError::Usage(format!("Hermes limiter: {e}")))
+}
+
 /// Send attempts through a [`Metered`] transport since its last [`Metered::take`]. An
 /// attempt is a call to `Transport::send`: a failed one may never have reached the cluster (the
 /// blockhash fetch failed) or may have landed anyway (the confirmation failed), so `bytes`
