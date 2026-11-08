@@ -226,6 +226,54 @@ fn test_set_calendar_after_admin_rotation_rejects_the_old_admin() {
     assert_eq!(env.account(&calendar_address(XAU)).data[4], 2);
 }
 
+/// The devnet key separation (`docs/keys.md`, H3): the upgrade authority initializes the
+/// config, hands admin to another key with the parameters unchanged, and is then rotated itself.
+/// Afterwards the old key holds no role and the new admin works without being the upgrade
+/// authority.
+#[test]
+fn test_key_separation_leaves_the_old_key_without_a_role() {
+    let mut env = Env::new();
+    let old = env.admin.insecure_clone();
+    let new_admin = env.funded();
+    let new_upgrade = env.funded();
+    let before = env.account(&config_address()).data;
+
+    // Admin to its own key, every parameter unchanged.
+    let ix = env.ix_set_config(&old.pubkey(), &new_admin.pubkey(), Params::default_params());
+    env.send(&[ix], &[&old]).unwrap();
+    let after = env.account(&config_address()).data;
+    assert_eq!(&after[8..40], new_admin.pubkey().as_ref());
+    assert_eq!(&before[..8], &after[..8]);
+    assert_eq!(&before[40..], &after[40..]);
+
+    // Upgrade authority to a third key (what `set-upgrade-authority` writes in ProgramData).
+    let pd = program_data_address();
+    let mut a = env.account(&pd);
+    a.data[13..45].copy_from_slice(new_upgrade.pubkey().as_ref());
+    env.svm.set_account(pd, a).unwrap();
+
+    // The old key: rejected as admin, for both admin instructions.
+    let ix = env.ix_set_config(&old.pubkey(), &old.pubkey(), Params::default_params());
+    expect_code(env.send(&[ix], &[&old]), code::NOT_AUTHORITY);
+    let ix = env.ix_set_calendar(&old.pubkey(), XAU, &[EXPIRY]);
+    expect_code(env.send(&[ix], &[&old]), code::NOT_AUTHORITY);
+    // The upgrade key is not the admin either.
+    let ix = env.ix_set_calendar(&new_upgrade.pubkey(), XAU, &[EXPIRY]);
+    expect_code(env.send(&[ix], &[&new_upgrade]), code::NOT_AUTHORITY);
+
+    // The new admin works on its own: the admin check never reads ProgramData.
+    let ix = env.ix_set_calendar(&new_admin.pubkey(), XAU, &[EXPIRY, EXPIRY_2]);
+    env.send(&[ix], &[&new_admin]).unwrap();
+    assert_eq!(env.account(&calendar_address(XAU)).data[4], 2);
+    let ix = env.ix_set_config(
+        &new_admin.pubkey(),
+        &new_admin.pubkey(),
+        Params::default_params(),
+    );
+    env.send(&[ix], &[&new_admin]).unwrap();
+    assert_eq!(&env.account(&config_address()).data[40..], &before[40..]);
+}
+
 #[test]
 fn test_set_calendar_forged_config_is_rejected() {
     let mut env = Env::new();
