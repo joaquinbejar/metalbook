@@ -543,7 +543,6 @@ fn run(cli: Cli) -> Result<(), CliError> {
                 ),
             );
             let mut prints = metalbook_cli::roll::HermesPrints(&source);
-            let now = unix_now()?;
             let mut existing = |rpc: &mut Cluster, metal: u8, expiry: i64| {
                 count_series(rpc, &program_id, metal, expiry)
             };
@@ -552,7 +551,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
                 &mut prints,
                 &program_id,
                 &signer,
-                now,
+                &mut unix_now,
                 &opts,
                 &mut existing,
                 &mut std::thread::sleep,

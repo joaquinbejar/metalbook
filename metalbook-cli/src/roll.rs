@@ -294,7 +294,7 @@ pub fn roll<R: Rpc, P: LatestPrints>(
     prints: &mut P,
     program_id: &Address,
     signer: &Keypair,
-    now: i64,
+    clock: &mut dyn FnMut() -> Result<i64, CliError>,
     opts: &RollOptions,
     existing: &mut dyn FnMut(&mut R, u8, i64) -> Result<usize, CliError>,
     sleep: &mut dyn FnMut(Duration),
@@ -312,10 +312,11 @@ pub fn roll<R: Rpc, P: LatestPrints>(
                 .collect::<Vec<i64>>(),
         );
     }
-    if let Some(e) = quiet_expiry(&calendars, now, QUIET_S) {
+    let started = clock()?;
+    if let Some(e) = quiet_expiry(&calendars, started, QUIET_S) {
         report.quiet = Some(e);
         report.lines.push(format!(
-            "quiet period: now {now} is within {QUIET_S} s of expiry {e}; nothing read or sent"
+            "quiet period: now {started} is within {QUIET_S} s of expiry {e}; nothing read or sent"
         ));
         return Ok(report);
     }
@@ -325,9 +326,29 @@ pub fn roll<R: Rpc, P: LatestPrints>(
     for (metal, calendar) in METALS.iter().copied().zip(calendars.iter()) {
         let name = metal_name(metal);
         let index = usize::from(metal);
+        // Sending a metal's series takes minutes: the clock is read again for each decision,
+        // and a failed read fails this metal only, so the lines already written are kept.
+        let before = match clock() {
+            Ok(t) => t,
+            Err(e) => {
+                report.lines.push(format!("{name}: {e}; nothing sent"));
+                report
+                    .metals
+                    .push((metal, MetalOutcome::Failed(e.to_string())));
+                continue;
+            }
+        };
+        if let Some(e) = quiet_expiry(&calendars, before, QUIET_S) {
+            report.quiet = Some(e);
+            report.lines.push(format!(
+                "quiet period: now {before} is within {QUIET_S} s of expiry {e}; {name} and later \
+                 metals not read or sent"
+            ));
+            break;
+        }
         let Some(expiry) = target_expiry(
             calendar,
-            now,
+            before,
             opts.min_lead_s,
             config.min_listing_s,
             opts.min_expiry,
@@ -366,6 +387,17 @@ pub fn roll<R: Rpc, P: LatestPrints>(
                 report
                     .lines
                     .push(format!("{name}: Hermes read failed: {e}; nothing sent"));
+                report
+                    .metals
+                    .push((metal, MetalOutcome::Failed(e.to_string())));
+                continue;
+            }
+        };
+        // After the read: a print is never newer than the clock it is judged by.
+        let now = match clock() {
+            Ok(t) => t,
+            Err(e) => {
+                report.lines.push(format!("{name}: {e}; nothing sent"));
                 report
                     .metals
                     .push((metal, MetalOutcome::Failed(e.to_string())));

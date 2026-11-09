@@ -166,7 +166,7 @@ fn run(
         prints,
         &PROGRAM_ID,
         signer,
-        now,
+        &mut || Ok(now),
         opts,
         &mut |rpc: &mut Svm, m, e| existing(rpc, m, e),
         &mut |d| sleeps.push(d),
@@ -393,4 +393,77 @@ fn test_a_dry_run_sends_nothing() {
     assert_eq!(new_of(&r, XAU).len(), 18);
     assert_eq!(rpc.sent, 0);
     assert!(r.lines.iter().any(|l| l.contains("dry run")));
+}
+
+/// The run behind bus 65319: the first metal's sends took 84 s, and the second metal's fresh
+/// print was refused as "in the future" against the clock read when the run started.
+#[test]
+fn test_the_clock_advancing_between_metals_still_lists_the_second() {
+    let mut env = env_1oz();
+    let lister = env.funded();
+    let mut rpc = Svm::new(&mut env);
+    // Past the 5 s skew limit by far, and inside the 300 s age limit.
+    const SENDS_TOOK: i64 = 90;
+    let late_xag = Ok(PrintRead::Print(print(
+        5_012_345,
+        EXPO_XAG,
+        NOW + SENDS_TOOK - 1,
+    )));
+    let mut prints = Script::new(vec![xau(), late_xag]);
+    // Run start, then XAU before and after its print; everything later is after its sends.
+    let mut reads = 0;
+    let mut clock = || {
+        reads += 1;
+        Ok(if reads <= 3 { NOW } else { NOW + SENDS_TOOK })
+    };
+    let first = roll(
+        &mut rpc,
+        &mut prints,
+        &PROGRAM_ID,
+        &lister,
+        &mut clock,
+        &execute(),
+        &mut |rpc: &mut Svm, m, e| existing(rpc, m, e),
+        &mut |_| {},
+    )
+    .unwrap();
+    assert!(!first.failed(), "{:?}", first.lines);
+    assert_eq!(new_of(&first, XAU).len(), 18);
+    assert_eq!(new_of(&first, XAG).len(), 10, "the run's --max leaves 10");
+
+    // A rerun: XAU has its 18 and sends nothing, XAG only tops up.
+    let mut prints = Script::new(vec![xau(), xag()]);
+    let mut sleeps = Vec::new();
+    let sent = rpc.sent;
+    let second = run(&mut rpc, &mut prints, &lister, NOW, &execute(), &mut sleeps).unwrap();
+    assert!(new_of(&second, XAU).is_empty(), "{:?}", second.lines);
+    assert_eq!(rpc.sent, sent + new_of(&second, XAG).len());
+}
+
+/// A run that reaches a quiet period while sending stops before the next metal's Hermes read.
+#[test]
+fn test_a_run_entering_the_quiet_period_stops_before_the_next_metal() {
+    let mut env = env_1oz();
+    let lister = env.funded();
+    let mut rpc = Svm::new(&mut env);
+    let mut prints = Script::new(vec![xau(), xag()]);
+    let mut reads = 0;
+    let mut clock = || {
+        reads += 1;
+        Ok(if reads <= 3 { NOW } else { EXPIRY - 7_200 })
+    };
+    let r = roll(
+        &mut rpc,
+        &mut prints,
+        &PROGRAM_ID,
+        &lister,
+        &mut clock,
+        &execute(),
+        &mut |rpc: &mut Svm, m, e| existing(rpc, m, e),
+        &mut |_| {},
+    )
+    .unwrap();
+    assert_eq!(r.quiet, Some(EXPIRY));
+    assert_eq!(prints.asked, 1, "XAG was not read");
+    assert!(!r.failed(), "{:?}", r.lines);
 }
