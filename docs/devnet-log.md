@@ -437,6 +437,52 @@ demo maker's USDC account `F7KjgYNYkFK1RLF81yZcfRKq1wEb9wCDDSSrVUPe8Co2` (owner
 `uQAmw5xnP8Atc4aA29HS3bsF8XXmBemnENznW2gXsvBWCWrAaXYaY6q4EGvQ5r4tWFTmAFdJkGnAkW5zRDZxnvW`
 (09:04:31Z, slot 519608843).
 
+## Weekly series roller (phase 2, R1), 2026-11-09
+
+LaunchAgent `com.metalbook.roll.devnet` (6 h interval, `--min-expiry 1795208400`) listed the
+Nov 20 21:00Z series (expiry `1795208400`) with the lister key `QALJUrTtz1GJDT8oiW9V4DRfPW1BZzFJjQ7kbd9zND8`.
+
+| Run (UTC) | Metal | Series | Lister balance after (lamports) | Net cost (lamports) |
+| --- | --- | --- | --- | --- |
+| 00:39:58 to 00:41:22 | XAU | 18 | 896,125,600 | 103,874,400 |
+| 01:04:34 to 01:05:41 | XAG | 10 | 838,417,600 | 57,708,000 |
+| **Total** | | **28** | | **161,582,400** (0.1616 SOL) |
+
+The lister started at 1,000,000,000 lamports. Each series cost 5,770,800 lamports. The 00:39
+run listed XAU, then refused XAG (`published 83 s in the future`) because the clock was read
+once per run; fixed in #60, and the 01:04 run listed XAG.
+
+| Metal | Type | Strike | Series | Signature |
+| --- | --- | --- | --- | --- |
+| XAU | call | 4100 | `6t5yHgG2iysCvidomhpnTHDEKApYdhAWpY6NDGPN8cZg` | `5UVh8UX2CpDVLs2tEtp5BA4urMoSLGge8FMdgpU7UBVahVCL3C6PLKkqzGQvi11WRAc4SmESm5noCQTYAcVV2BXe` |
+| XAU | put | 4100 | `C6XNXmWB8TzixuFdccca4mSixKsyyL8MiAMUTci5ZKFH` | `5MwF95tWfu9TGJfKkFYUBHtVNmnbDPyLqn7tbsDeAkQkf2wCxJbYY7fX2swvTdRhFoRmx21pLKRkCEhXLkGiJsmw` |
+| XAU | call | 4050 | `DuEsSb5FhvSyAK6b8N4FXYatC2pR9MdUURPmYHwdXz5N` | `GYJe3LgrQtTVbmtamw48BMJxVeJWmzkxEzJt36yrxFcm3vnLSe2FiqdQaEs2WFn9LZCoUPMvax4zU532cQnh9Yq` |
+| XAU | put | 4050 | `FCpUpz2AZ3GLyhCxjxThr82BcfixtDsuMw31tKYhUtbs` | `61br3HLLn1GHAzr2e4js6rToXyDAyNtRH8MUG6nnW8g1inix2JdqhnMT8xkxT2SssAT8qTnRtGjK1WdsTYrF544C` |
+| XAU | call | 4150 | `F2Z4uhmt1x7ZJStEiVKeJ1CT3NoBThd8j8uNLeHu1UhS` | `5TEVEHEu1sZQhBk69v6WBzJ6JnVzk8PgCMm77EyCZdLtxaezzkjU2FJRVyXA9VQxNeuR3qXLevj9jS9rgm9bzxk3` |
+| XAU | put | 4150 | `9QtY9dzYi5uKuwMgD4RNFm2GkeYWtwFP64NZdTPvETWu` | `2wmGrLihpBnK4p4HZV8uEVDx1XGYr2cxwiDKFXs1tyJmtNEAH3sYB3yEqguu7FHoTJ7KTXANh3PM95HrP4kzbDX5` |
+| XAU | call | 4000 | `7o6j1bXazSkziCpyDBysAHcefhZaRyYiWsCUDex1UY3Q` | `vDCWhaKcMoyS5ULrD2Xon2snmroDqgsWRkCEBJ5pnzDxrrJDdV3FeHQ7bYNxkgD73ofqK4d58sPshr3nvtsBW3n` |
+| XAU | put | 4000 | `ChHEBkdCeCpGNsEkT4JmiBuPadm2M9pm5YDbBsgFojNi` | `4GHwe9893gHGBwcF2UKLJ1DLekyRaECzxuvPRCAwVzJSmmpV3BtgH9kUhPhydizXRQ63xgvoHSH2EbZZtf3g5SYj` |
+| XAU | call | 4200 | `2JF4VVNttuFhBF6aC5enVzPxSby35qy8DvtEisCnuPs4` | `UFKFmEYEw9KmzMXN3UjFU8qxaXiJMr6mvDck3Bz5eLrhV2tK7NaHfx8wEPEKi7WGP7hJtPysiEZq2vNXyGLF54D` |
+| XAU | put | 4200 | `8GvYQABgDhSLpLsotEaEv6oZqthdimrKAmF9BzJjxVu8` | `aUiEPqrnfwJXuY7Jj4UW73zbDWwkyr9xt1GmB3HtA7z7qokY9Ug2UAgYX4efcPWaoJ7Bgf9rYwC8inA1duPi3o7` |
+| XAU | call | 3950 | `6uGxMu58fed5vczs5zub1VDGKSihbyBEaSGdNPUuab3p` | `5fmPouXyAoggx3scuv8PkrzcXvoEJL65HCmKrgnqmNPBt1S4nkF6zhb7CYLES4RUce479tYUpYt8BWqg112EabH8` |
+| XAU | put | 3950 | `Bq8VjFhebbXpANfAVr1MKyroexnfPZ5P7XhHkXSCsVme` | `wacfxPtQLfvFSkandUR53wvpvaNGD8SqL2WWshJngTh961PUbVehegkN439iaGkj2JC2LXKiKn5qTwiNrQesMqJ` |
+| XAU | call | 4250 | `7jHt1r3Rb5tZujyuWZYgWxQTmNUZSVB7Utef7A5d6NBb` | `5R4m2eFAV4QHGdmbPx47xLJy1HKg81eSWoChUMkRE6Lxy9FmQEig87xMZTcFKGmhk7sYqNBS2ecPVfCjGrR1w8uF` |
+| XAU | put | 4250 | `5TbU5aFAKr2zGQDPucYyUBhj1rZgLv9cGrcC1DJrF5ve` | `4AVYgnRmuQEg52sFTs1qKXzVD7Zr9LwCh6HYrp4NyvsvzvbtdUkN7unjAmYhR7U2wEraZjDDb8b3fvBYTWh1qZNA` |
+| XAU | call | 3900 | `E348M4NFvTF2FP7vFCAaHgy5ZPurAwS6a2tF7JX5Lx7g` | `2XjML3vCWKdtUYc76t7Kx9GeGV4bhzq6JqoeZVJLW9sjo14GXiZJb7VphveVyDYQvx37KBBSGyHtnFDvvn8ChxdJ` |
+| XAU | put | 3900 | `BV94EXotAMonBUxzYdw75cE7SCF6GSF2szQeRL5Ftygk` | `2sirsSpjTfLRdTiExJZzRasY2ZvSDXchWwubBwzrTarwFzxroWmQmbZS4XGE8e81VMSoNyuFxj3SZEq6rXUqRfJv` |
+| XAU | call | 4300 | `7LA7fC8rGB8s3Zstw3p1xt4iyFCwmnAwhWNbx7TeCw7i` | `5dWenUWsxC2GejFqHm5Xa7eFHFQsk8aG6T2aravfaTAaZabDFhbvEA51NXyAdCTsowpDfYAjWuEpZoNikcvaMMS5` |
+| XAU | put | 4300 | `9ctNZna8nrTBqnEQwzbaWkVQWAEUAnuZTunYNaKB28hY` | `4rxZ5AP4YG2cddFLdVBgwDhv9UgWSHw6pb1MU5w5Cyt6cewtTQoXCziGMZmUEsmXhwAtLGop2xvXEsKZxqFuxUAU` |
+| XAG | call | 53 | `EugHrksN1GfKjaYiKdwX71ErgSibRHYTFUNk4E4Rd6t6` | `4zH5qkkWgR8r6mYEG9uo14hQ6Qevbghzaw9nwbEHYENXvEb6HR27sCBTpB7EkfhZ5BgaGSjfAa7vTUoyEQ7kBwUB` |
+| XAG | put | 53 | `E3K7AbTG5ZDEytBkqYEkNKDFFd5rQUQohUofVTWdzqQ7` | `2drZhM7vB2BbJeNLUh3YBLxdqcRVT6NsCLMsz3Ksj42aKJNQVq2N3UzrX6UGrg2st1HJreP3pZeJpLzAWSV6TnTk` |
+| XAG | call | 52 | `ArCjPYXJDda7a7vDqKBzU31nU6eyNzWYdJb4vLHKZrzH` | `3VpEGDCBykgVT4miymPZrDPjvH6MoGAYCSshCXSDRK1TmuuSEahgZsHC5Kmqu3vUGmpZ89tvMYw6skE59M9qNpYY` |
+| XAG | put | 52 | `HWQpYHXB4EDGW1wUzKbJ2YNbqhoiAJZaHKqiyiSv5iQv` | `2bHBGuv5RiQb8KA2kjTc4yHhBwCx89N4z9fSecutmXDixpuzgidD6y91BiJG46SwGKRnVRYNg5NMAGJexP5a6cfk` |
+| XAG | call | 54 | `ATrKvXT88usF45TSJji9bP8LWtqvvChKdzp5GyfGzLBw` | `2Cwfsn4hdTMTNbmVLdyw1hajY9TGoMZJGM7cUTMkoxngDCiHfy6NEntDeyTDHoEbUCk7KUjjmmoCRyVHP3cz2DUU` |
+| XAG | put | 54 | `Avus1HS2Veotj3cv65m33XV5ggvXddPneXyraiAEB4Kh` | `5s7M5FEdfTQTasCfiJpoLcpwMVHKg9TF3w9kq1Gc3PDgPhrgxTUsBvt9DY3vmYjfYgRw4xzSK7B8bsS9jtPFizvv` |
+| XAG | call | 51 | `GAN7xJY69zhH6Dr6VckPYffo3m7HALZnLfpaFyvAGVbr` | `4VEAbEvQBBo6etVdzo132axPizYsujHfj3CBXDs4pSo2iDaXNmDAosH4H7Lmobf8Qp6G3W5HDwsQsrJWwcaG47iX` |
+| XAG | put | 51 | `GH1FfV1dh4h5MwcChc48X6nuh8CcbBB3XhjTKV8vNB95` | `4CJ6CMxf1x6mwouD458DtvFdYsw5fYPLqXYxaB3g89KBJy5FhDv5XjBoLxyXJhEzmz7oBvasymxQxuMSwx4JXr4U` |
+| XAG | call | 55 | `9StNKdcJ2X4rJPEQR7Mi8cMAAVpEX8fgXcSbQ92mTJot` | `2WsYDTZTMBJsH9bfwAgQCxcSf7XRkZwaRRwbRhsurBDbmgv7NbYP3VimrvhhqSwzbrPTs5kV7HzRFTT2K34UAyH9` |
+| XAG | put | 55 | `BBKAVGnqV9KLnW4cMhW4ntqgoAtQY5DdCa1wZoCwz79d` | `WbaksG6PuGhJpDu8KwoQyKQq7xruGNYssEqEpP5Ztq7F5xWHCF9dkWxGKkFJQsZRXReAWUkNRGKJfKTQHZa62MA` |
+
 ## Not done yet
 
 - **Trading** through QuoteBook on devnet, once the maker has more USDC.
