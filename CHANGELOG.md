@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `metalbook-admin roll` reads the clock for each metal and again after each Pyth print. It used
+  one reading from the start of the run, so after the first metal's sends (84 s on devnet) the
+  second metal's fresh print was refused as published in the future. The quiet period is also
+  checked again before each metal.
+
 ### Added
 
 - A test of the devnet key separation: after the admin is handed over with the parameters
