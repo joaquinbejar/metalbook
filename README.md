@@ -631,12 +631,11 @@ If you have any questions, issues, or would like to provide feedback, please fee
 
 
 ### **Contact Information**
-
-- **Author**: Joaquín Béjar García <https://joaquinbejar.capitaldelta.co/>
+- **Author**: Joaquín Béjar García
 - **Email**: jb@taunais.com
 - **Telegram**: [@joaquin_bejar](https://t.me/joaquin_bejar)
 - **Repository**: <https://github.com/joaquinbejar/metalbook>
-- **Documentation**: <https://github.com/joaquinbejar/metalbook/tree/main/docs>
+- **Documentation**: <https://docs.rs/metalbook-sdk>
 
 We appreciate your interest and look forward to your contributions!
 
@@ -653,13 +652,15 @@ Repositories by the same author that this project depends on, and repositories t
 
 | Repository | Description |
 |------------|-------------|
-| [OptionStratLib](https://github.com/joaquinbejar/OptionStratLib) · [crates.io](https://crates.io/crates/optionstratlib) | Rust library for options trading and strategy development; metalbook-maker uses it as the independent pricing reference in tests. |
-| [optfix](https://github.com/joaquinbejar/optfix) | Fixed-point option pricing for Solana programs: no_std, allocation-free Black-Scholes, greeks and implied volatility, measured in compute units. |
-| [quotebook](https://github.com/joaquinbejar/quotebook) | RFQ on Solana: maker quotes signed off-chain with ed25519, verified and settled atomically on-chain by a Pinocchio program. |
-| [varswap](https://github.com/joaquinbejar/varswap) | Realized variance accumulated on-chain from Pyth prices, and variance swaps settled against it, on Solana; metalbook reuses its pyth-lite crate. |
+| [OptionStratLib](https://github.com/joaquinbejar/OptionStratLib) | Independent pricing reference that metalbook-maker tests check its quotes against. |
+| [optfix](https://github.com/joaquinbejar/optfix) | Fixed-point Black-Scholes and greeks that metalbook-maker uses to price XAU and XAG options. |
+| [quotebook](https://github.com/joaquinbejar/quotebook) | `quotebook-core` gives metalbook-maker the RFQ quote terms it builds for metalbook series; metalbook-tests settles them with `quotebook-sdk`. |
+| [varswap](https://github.com/joaquinbejar/varswap) | Its `pyth-lite` crate is how metalbook-program reads the Pyth gold and silver prices it settles against. |
 
 ### Used by
 
-None yet.
+| Repository | Description |
+|------------|-------------|
+| [quotebook](https://github.com/joaquinbejar/quotebook) | RFQ on Solana with ed25519 signed maker quotes settled by a Pinocchio program; its demo uses `metalbook-core` and `metalbook-sdk` to quote metalbook options. |
 
 <!-- related-projects:end -->
